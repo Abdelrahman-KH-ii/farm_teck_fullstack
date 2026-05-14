@@ -1,0 +1,66 @@
+"use client"
+
+import { useMemo, useState } from "react"
+import { useLanguage } from "@/lib/language-context"
+
+export default function QuickActionsPanel() {
+  const [activeAction, setActiveAction] = useState<string | null>(null)
+  const { t } = useLanguage()
+  const Q = t.dashboard.quickActions
+
+  const actions = useMemo(
+    () => [
+    {
+      id: "upload",
+      label: Q.uploadLabel,
+      description: Q.uploadDesc,
+      color: "bg-primary",
+      icon: (
+        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+        </svg>
+      ),
+    },
+    {
+      id: "simulate",
+      label: Q.simulateLabel,
+      description: Q.simulateDesc,
+      color: "bg-secondary",
+      icon: (
+        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.52l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.34.24.52.49.52h4c.25 0 .46-.18.49-.52l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" />
+        </svg>
+      ),
+    },
+  ],
+    [Q]
+  )
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+      <h2 className="text-lg font-semibold mb-6">{Q.title}</h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {actions.map((action) => (
+          <button
+            key={action.id}
+            onClick={() => setActiveAction(action.id)}
+            className={`p-6 rounded-lg border-2 transition-all group hover:shadow-lg ${
+              activeAction === action.id
+                ? "border-primary bg-primary/5"
+                : "border-border bg-muted/20 hover:border-primary"
+            }`}
+          >
+            <div
+              className={`w-12 h-12 rounded-lg ${action.color} flex items-center justify-center mb-4 text-white group-hover:scale-110 transition-transform`}
+            >
+              {action.icon}
+            </div>
+            <h3 className="font-semibold text-start mb-2">{action.label}</h3>
+            <p className="text-xs text-muted-foreground text-start">{action.description}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
