@@ -26,3 +26,5 @@ huggingface_hub
 
 # Environment
 python-dotenv
+psycopg2-binary
+dj-database-url

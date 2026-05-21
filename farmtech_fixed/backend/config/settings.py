@@ -5,6 +5,8 @@ import os
 try:
     from dotenv import load_dotenv
     load_dotenv()
+    # Search one level up (farmtech_fixed directory) for .env
+    load_dotenv(Path(__file__).resolve().parent.parent.parent / '.env')
 except ImportError:
     pass
 
@@ -88,13 +90,45 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Database configuration - Force SQLite for local testing
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# Database configuration - Use PostgreSQL if configured in environment, otherwise use SQLite
+DATABASE_URL = os.getenv("DATABASE_URL")
+DB_ENGINE = os.getenv("DB_ENGINE")
+
+if DATABASE_URL:
+    try:
+        import dj_database_url
+        DATABASES = {
+            "default": dj_database_url.config(
+                default=DATABASE_URL,
+                conn_max_age=600,
+                conn_health_checks=True,
+            )
+        }
+    except ImportError:
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": BASE_DIR / "db.sqlite3",
+            }
+        }
+elif DB_ENGINE in ["postgresql", "postgres", "django.db.backends.postgresql"]:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME", "postgres"),
+            "USER": os.getenv("DB_USER", "postgres"),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 # Cache configuration - Force LocMem for local testing
 CACHES = {
