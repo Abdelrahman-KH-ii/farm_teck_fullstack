@@ -9,6 +9,8 @@ django-cors-headers
 numpy
 pandas
 scikit-learn
+lightgbm
+xgboost
 joblib
 xarray
 netCDF4

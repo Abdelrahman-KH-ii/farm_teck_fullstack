@@ -85,13 +85,23 @@ export default function IrrigationPlanPage() {
   const waterSavedThisMonth = 120
 
   // AI Irrigation State
-  const [temp, setTemp] = useState(30)
-  const [humidity, setHumidity] = useState(45)
-  const [moisture, setMoisture] = useState(30)
-  const [soilType, setSoilType] = useState("loamy")
+  const [lat, setLat] = useState(30.08)
+  const [lon, setLon] = useState(31.25)
+  const [year, setYear] = useState(2024)
   const [cropType, setCropType] = useState("wheat")
+  const [debug, setDebug] = useState(false)
   
-  const [aiResult, setAiResult] = useState<{ irrigation_need_mm: number; irrigation_class: string } | null>(null)
+  const [aiResult, setAiResult] = useState<{
+    irrigation_need_mm_season: number
+    irrigation_class: string
+    confidence: string
+    uncertainty_score: number
+    reliability_flag: string
+    season: string
+    active_months: number[]
+    diagnostics?: any
+    debug?: any
+  } | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
 
@@ -104,14 +114,17 @@ export default function IrrigationPlanPage() {
       const payload = {
         farm_id: 1, 
         data: {
-          temperature: temp,
-          humidity: humidity,
-          moisture: moisture,
-          soil_type: soilType,
-          crop_type: cropType
+          lat: lat,
+          lon: lon,
+          crop: cropType,
+          year: year,
+          debug: debug
         }
       }
       const result = await analyzeIrrigation(payload)
+      if (result && 'error' in result) {
+        throw new Error((result as any).error)
+      }
       setAiResult(result)
     } catch (err: any) {
       setAiError(err.message || "Failed to analyze")
@@ -217,30 +230,35 @@ export default function IrrigationPlanPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {/* Input Form for AI */}
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">{isRtl ? 'الحرارة (°C)' : 'Temp (°C)'}</label>
-                        <input type="number" value={temp} onChange={e => setTemp(Number(e.target.value))} className="w-full bg-muted border border-border rounded-md px-2 py-1 text-sm outline-none" />
+                        <label className="text-xs text-muted-foreground">{isRtl ? 'خط العرض (Latitude)' : 'Latitude'}</label>
+                        <input type="number" step="0.0001" value={lat} onChange={e => setLat(Number(e.target.value))} className="w-full bg-muted border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">{isRtl ? 'الرطوبة (%)' : 'Humidity (%)'}</label>
-                        <input type="number" value={humidity} onChange={e => setHumidity(Number(e.target.value))} className="w-full bg-muted border border-border rounded-md px-2 py-1 text-sm outline-none" />
+                        <label className="text-xs text-muted-foreground">{isRtl ? 'خط الطول (Longitude)' : 'Longitude'}</label>
+                        <input type="number" step="0.0001" value={lon} onChange={e => setLon(Number(e.target.value))} className="w-full bg-muted border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">{isRtl ? 'رطوبة التربة' : 'Moisture'}</label>
-                        <input type="number" value={moisture} onChange={e => setMoisture(Number(e.target.value))} className="w-full bg-muted border border-border rounded-md px-2 py-1 text-sm outline-none" />
+                        <label className="text-xs text-muted-foreground">{isRtl ? 'سنة الحصاد' : 'Harvest Year'}</label>
+                        <input type="number" value={year} onChange={e => setYear(Number(e.target.value))} className="w-full bg-muted border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">{isRtl ? 'نوع التربة' : 'Soil Type'}</label>
-                        <select value={soilType} onChange={e => setSoilType(e.target.value)} className="w-full bg-muted border border-border rounded-md px-2 py-1 text-sm outline-none">
-                          <option value="loamy">Loamy</option>
-                          <option value="sandy">Sandy</option>
-                          <option value="clay">Clay</option>
+                      <div className="space-y-1 col-span-2 md:col-span-1">
+                        <label className="text-xs text-muted-foreground">{isRtl ? 'نوع المحصول' : 'Crop Type'}</label>
+                        <select value={cropType} onChange={e => setCropType(e.target.value)} className="w-full bg-muted border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary">
+                          <option value="wheat">{isRtl ? 'قمح' : 'Wheat'}</option>
+                          <option value="rice">{isRtl ? 'أرز' : 'Rice'}</option>
+                          <option value="maize">{isRtl ? 'ذرة' : 'Maize'}</option>
+                          <option value="tomato">{isRtl ? 'طماطم' : 'Tomato'}</option>
+                          <option value="potato">{isRtl ? 'بطاطس' : 'Potato'}</option>
+                          <option value="mango">{isRtl ? 'مانجو' : 'Mango'}</option>
+                          <option value="sorghum">{isRtl ? 'سورغوم' : 'Sorghum'}</option>
+                          <option value="vegfor">{isRtl ? 'خضروات/علف (VegFor)' : 'Vegetables/Forage (VegFor)'}</option>
                         </select>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">{isRtl ? 'المحصول' : 'Crop Type'}</label>
-                        <input type="text" value={cropType} onChange={e => setCropType(e.target.value)} className="w-full bg-muted border border-border rounded-md px-2 py-1 text-sm outline-none" />
+                      <div className="space-y-1 flex items-center gap-2 pt-5">
+                        <input type="checkbox" id="debugMode" checked={debug} onChange={e => setDebug(e.target.checked)} className="w-4 h-4 accent-primary rounded cursor-pointer" />
+                        <label htmlFor="debugMode" className="text-xs text-muted-foreground cursor-pointer select-none">{isRtl ? 'عرض معلومات التصحيح' : 'Enable Debug Mode'}</label>
                       </div>
                     </div>
 
@@ -252,21 +270,88 @@ export default function IrrigationPlanPage() {
                     {aiError && <div className="text-sm text-destructive mt-2">{aiError}</div>}
                     
                     {aiResult && (
-                      <div className="mt-4 p-4 bg-primary/10 border border-primary/20 rounded-xl">
-                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-primary">
-                          <Sparkles className="w-4 h-4" /> 
-                          {isRtl ? 'توصية الذكاء الاصطناعي' : 'AI Recommendation'}
-                        </h4>
-                        <div className="grid grid-cols-2 gap-4">
+                      <div className="mt-4 p-5 bg-primary/10 border border-primary/25 rounded-2xl space-y-4 transition-all">
+                        <div className="flex items-center justify-between border-b border-primary/20 pb-3">
+                          <h4 className="text-sm font-bold flex items-center gap-1.5 text-primary">
+                            <Sparkles className="w-4 h-4 animate-pulse" /> 
+                            {isRtl ? 'توصية الذكاء الاصطناعي الجيومكانية' : 'Geospatial AI Recommendation'}
+                          </h4>
+                          <Badge variant="secondary" className="bg-primary/20 text-primary hover:bg-primary/25 capitalize text-xs px-2 py-0.5">
+                            {aiResult.confidence} {isRtl ? 'ثقة' : 'confidence'}
+                          </Badge>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                           <div>
-                            <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'الكمية المطلوبة' : 'Required Amount'}</p>
-                            <p className="text-xl font-bold text-foreground">{aiResult.irrigation_need_mm} <span className="text-sm font-normal text-muted-foreground">mm/day</span></p>
+                            <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'الاحتياج الموسمي الإجمالي' : 'Total Seasonal Need'}</p>
+                            <p className="text-2xl font-bold text-foreground">
+                              {aiResult.irrigation_need_mm_season} 
+                              <span className="text-sm font-semibold text-muted-foreground ms-1">mm</span>
+                            </p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'مستوى الاحتياج' : 'Need Level'}</p>
-                            <Badge variant="outline" className="text-sm bg-background/50">{aiResult.irrigation_class}</Badge>
+                            <Badge variant="outline" className="text-sm bg-background/50 py-0.5 px-2">
+                              {aiResult.irrigation_class}
+                            </Badge>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'موثوقية التنبؤ' : 'Prediction Reliability'}</p>
+                            <span className={`text-sm font-semibold capitalize ${
+                              aiResult.reliability_flag === 'stable' ? 'text-green-600 dark:text-green-400' :
+                              aiResult.reliability_flag === 'moderate' ? 'text-yellow-600 dark:text-yellow-400' :
+                              'text-red-600 dark:text-red-400'
+                            }`}>
+                              {aiResult.reliability_flag}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'معدل عدم اليقين' : 'Uncertainty StdDev'}</p>
+                            <p className="text-sm font-medium text-foreground">
+                              ± {aiResult.uncertainty_score} <span className="text-xs text-muted-foreground">mm</span>
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'الموسم الزراعي' : 'Growth Season'}</p>
+                            <p className="text-sm font-medium text-foreground capitalize">
+                              {aiResult.season}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">{isRtl ? 'أشهر النمو النشطة' : 'Active Growth Months'}</p>
+                            <p className="text-sm font-medium text-foreground">
+                              {aiResult.active_months ? aiResult.active_months.join(', ') : '-'}
+                            </p>
                           </div>
                         </div>
+
+                        {/* Diagnostics & Debug Info */}
+                        {debug && (aiResult.diagnostics || aiResult.debug) && (
+                          <div className="mt-4 pt-4 border-t border-primary/20">
+                            <details className="cursor-pointer group">
+                              <summary className="text-xs font-semibold text-primary/80 group-hover:text-primary flex items-center justify-between outline-none">
+                                <span>{isRtl ? 'بيانات التحليل التفصيلية (GEE)' : 'Detailed Analysis Diagnostics (GEE)'}</span>
+                                <span className="text-[10px] bg-primary/20 px-2 py-0.5 rounded">
+                                  {isRtl ? 'انقر للتوسيع' : 'Click to expand'}
+                                </span>
+                              </summary>
+                              <div className="mt-3 p-3 bg-card/65 rounded-lg border border-border overflow-x-auto text-[11px] font-mono text-muted-foreground leading-relaxed cursor-default">
+                                {aiResult.diagnostics && (
+                                  <div className="mb-2">
+                                    <p className="font-bold text-foreground mb-1">Diagnostics:</p>
+                                    <pre className="whitespace-pre-wrap">{JSON.stringify(aiResult.diagnostics, null, 2)}</pre>
+                                  </div>
+                                )}
+                                {aiResult.debug && (
+                                  <div>
+                                    <p className="font-bold text-foreground mb-1">Model Debug Info:</p>
+                                    <pre className="whitespace-pre-wrap">{JSON.stringify(aiResult.debug, null, 2)}</pre>
+                                  </div>
+                                )}
+                              </div>
+                            </details>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>

@@ -15,23 +15,85 @@ logger = logging.getLogger(__name__)
 HF_SPACE_URL = "https://youssef-d1aa-croprecommend.hf.space/predict"
 
 
+import os
+import joblib
+import json
+import pandas as pd
+import numpy as np
+from django.db.models import F, ExpressionWrapper, FloatField
+from ai_core.models import CropField
+from .local_feature_extractor import extract_and_engineer_features
+
+CROP_MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml_models", "crop_recommendation")
+
+
 class HFCropRecommender:
-    """Integration with Hugging Face Space for crop recommendations and CV analysis."""
+    """Integration with local ML models for crop recommendations using database lookup."""
+
+    _model = None
+    _scaler = None
+    _label_encoder = None
+    _expected_features = None
+
+    @classmethod
+    def _load_models(cls):
+        if cls._model is None:
+            try:
+                cls._model = joblib.load(os.path.join(CROP_MODELS_DIR, "xgboost_78_accuracy_model.joblib"))
+                cls._scaler = joblib.load(os.path.join(CROP_MODELS_DIR, "robust_scaler.joblib"))
+                cls._label_encoder = joblib.load(os.path.join(CROP_MODELS_DIR, "label_encoder.joblib"))
+                with open(os.path.join(CROP_MODELS_DIR, "feature_order.json"), "r") as f:
+                    cls._expected_features = json.load(f)
+                logger.info("Crop Recommend local models loaded successfully.")
+            except Exception as e:
+                logger.error(f"Error loading Crop Recommendation local models: {e}")
+                raise e
 
     @staticmethod
     def get_recommendation(input_data: dict) -> dict:
         """Helper for view integration."""
-        return HFCropRecommender.predict_crop(
-            soil_type=input_data.get("soil_type", input_data.get("soilType", "loamy")),
-            ph=input_data.get("ph", input_data.get("pH", 6.5)),
-            nitrogen=input_data.get("nitrogen", 50),
-            phosphorus=input_data.get("phosphorus", input_data.get("phosphorous", 30)),
-            potassium=input_data.get("potassium", 40),
-            temperature=input_data.get("temperature", 25),
-            humidity=input_data.get("humidity", 60),
-            lat=input_data.get("lat", input_data.get("latitude", 30.0)),
-            lon=input_data.get("lon", input_data.get("lng", input_data.get("longitude", 31.0))),
-        )
+        lat = float(input_data.get("lat", input_data.get("latitude", 30.0)))
+        lon = float(input_data.get("lon", input_data.get("lng", input_data.get("longitude", 31.0))))
+        
+        try:
+            # 1. Query closest CropField record in database
+            field_record = CropField.objects.annotate(
+                distance=ExpressionWrapper(
+                    (F('lat') - lat) * (F('lat') - lat) + (F('lon') - lon) * (F('lon') - lon),
+                    output_field=FloatField()
+                )
+            ).order_by('distance').first()
+
+            if not field_record:
+                logger.warning("No CropField records found in database for Crop Recommendation.")
+                return {"status": "error", "message": "No historical database records found."}
+
+            # 2. Extract and engineer features from local DB record
+            raw_features = extract_and_engineer_features(field_record)
+
+            # 3. Load local models
+            HFCropRecommender._load_models()
+
+            # 4. Format DataFrame
+            df = pd.DataFrame([raw_features])
+            for col in HFCropRecommender._expected_features:
+                if col not in df.columns:
+                    df[col] = 0.0
+            df = df[HFCropRecommender._expected_features]
+
+            # 5. Predict
+            scaled_data = HFCropRecommender._scaler.transform(df)
+            prediction_num = HFCropRecommender._model.predict(scaled_data)
+            predicted_crop = HFCropRecommender._label_encoder.inverse_transform(prediction_num)[0]
+
+            return {
+                "status": "success",
+                "coordinates": {"lat": lat, "lon": lon},
+                "predicted_crop": str(predicted_crop)
+            }
+        except Exception as e:
+            logger.exception("Error in local crop recommendation")
+            return {"status": "error", "message": str(e)}
 
     @staticmethod
     def predict_crop(
@@ -47,53 +109,9 @@ class HFCropRecommender:
         lon: float = 31.0,
     ) -> Dict:
         """
-        Get crop recommendations based on soil and climate parameters.
-
-        Args:
-            soil_type: Type of soil (loamy, sandy, clay, etc.)
-            ph: Soil pH value (0-14)
-            nitrogen: Nitrogen content (ppm)
-            phosphorus: Phosphorus content (ppm)
-            potassium: Potassium content (ppm)
-            temperature: Temperature in Celsius
-            humidity: Humidity percentage (0-100)
-            rainfall: Annual rainfall in mm (optional)
-
-        Returns:
-            Dict with recommended crops and scores
+        Backward compatibility wrapper that queries recommendation based on lat/lon.
         """
-        try:
-            payload = {
-                "soil_type": soil_type,
-                "ph": float(ph),
-                "nitrogen": float(nitrogen),
-                "phosphorus": float(phosphorus),
-                "potassium": float(potassium),
-                "temperature": float(temperature),
-                "humidity": float(humidity),
-                "lat": float(lat),
-                "lon": float(lon),
-            }
-            if rainfall:
-                payload["rainfall"] = float(rainfall)
-
-            response = requests.post(
-                HF_SPACE_URL,
-                json=payload,
-                timeout=30,
-            )
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.Timeout:
-            logger.error("HF Space request timed out")
-            return {"error": "Model service timed out", "recommendations": []}
-        except requests.exceptions.ConnectionError:
-            logger.error("Failed to connect to HF Space")
-            return {"error": "Model service unavailable", "recommendations": []}
-        except Exception as e:
-            logger.error(f"Unexpected error in crop prediction: {str(e)}")
-            return {"error": str(e), "recommendations": []}
+        return HFCropRecommender.get_recommendation({"lat": lat, "lon": lon})
 
     @staticmethod
     def predict_from_image(image_input: Union[str, bytes]) -> Dict:

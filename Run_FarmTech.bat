@@ -38,13 +38,8 @@ if not exist "%FRONTEND_DIR%\node_modules" (
     echo [1/4] Frontend dependencies found.
 )
 
-:: 3. Pre-warm RAG (Sync)
-echo [2/4] Initializing RAG Knowledge Base...
-"%VENV_PYTHON%" "%BACKEND_DIR%\pre_warm_rag.py"
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [WARNING] RAG Pre-warm failed or had warnings.
-)
+:: 3. Pre-warm RAG (Disabled)
+echo [2/4] RAG pre-warm skipped (disabled)...
 echo.
 
 :: 4. Launch Backend and Frontend

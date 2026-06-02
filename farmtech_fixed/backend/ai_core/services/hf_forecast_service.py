@@ -1,25 +1,38 @@
-import requests
+import os
+import pandas as pd
 import logging
 
 logger = logging.getLogger(__name__)
 
+FORECAST_CSV = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "ml_models", "forecast", "future_forecasts.csv"
+)
+
 
 class HFForecastService:
-    """Service to interact with the FarmTech Commodity Forecast HF Space API."""
+    """Service to load pre-computed commodity price forecasts from local CSV."""
 
-    BASE_URL = "https://b1r-14n15-forecast.hf.space"
+    _df = None
+
+    @classmethod
+    def _load(cls):
+        if cls._df is None:
+            try:
+                cls._df = pd.read_csv(FORECAST_CSV)
+                logger.info(f"Loaded forecast CSV with {len(cls._df)} rows")
+            except Exception as e:
+                logger.error(f"Error loading forecast CSV: {e}")
+                cls._df = pd.DataFrame()
 
     @staticmethod
     def get_commodities() -> list:
         """Return list of available commodities."""
-        try:
-            r = requests.get(f"{HFForecastService.BASE_URL}/commodities", timeout=10)
-            if r.status_code == 200:
-                return r.json()
+        HFForecastService._load()
+        df = HFForecastService._df
+        if df is None or df.empty or "commodity" not in df.columns:
             return []
-        except Exception as e:
-            logger.error(f"HF Forecast commodities error: {e}")
-            return []
+        return sorted(df["commodity"].unique().tolist())
 
     @staticmethod
     def get_forecast(commodity: str) -> list:
@@ -32,22 +45,18 @@ class HFForecastService:
               ...
             ]
         """
-        try:
-            r = requests.get(
-                f"{HFForecastService.BASE_URL}/forecast/{commodity}",
-                timeout=15,
-            )
-            logger.info(f"HF Forecast [{commodity}]: {r.status_code} — {r.text[:200]}")
-            if r.status_code == 200:
-                return r.json()
-            logger.error(f"HF Forecast error {r.status_code}: {r.text[:200]}")
+        HFForecastService._load()
+        df = HFForecastService._df
+        if df is None or df.empty:
             return []
-        except requests.exceptions.Timeout:
-            logger.error(f"HF Forecast timed out for {commodity}")
+
+        mask = df["commodity"].str.lower() == commodity.lower()
+        filtered = df[mask]
+        if filtered.empty:
             return []
-        except Exception as e:
-            logger.error(f"HF Forecast request error: {e}")
-            return []
+
+        cols = ["commodity", "year", "quarter", "price"]
+        return filtered[cols].to_dict(orient="records")
 
     @staticmethod
     def get_all_forecasts() -> dict:
