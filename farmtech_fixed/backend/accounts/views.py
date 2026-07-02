@@ -49,6 +49,7 @@ class RegisterView(APIView):
             "message": "User registered successfully",
             "access": tokens["access"],
             "refresh": tokens["refresh"],
+            "tokens": tokens,
             "user": {
                 "username": user.username,
                 "email": user.email,
@@ -81,6 +82,7 @@ class LoginView(APIView):
             "message": "Login successful",
             "access": tokens["access"],
             "refresh": tokens["refresh"],
+            "tokens": tokens,
             "user": {
                 "username": user.username,
                 "email": user.email,

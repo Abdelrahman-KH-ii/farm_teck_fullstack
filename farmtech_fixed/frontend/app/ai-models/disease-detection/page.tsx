@@ -4,9 +4,12 @@ import { useState } from 'react'
 import Header from '@/components/header'
 import SidebarNav from '@/components/sidebar-nav'
 import { useLanguage } from "@/lib/language-context"
+import { apiFetch, API } from '@/lib/api'
 
 export default function DiseaseDetectionPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [detectionResults, setDetectionResults] = useState<{
     detected: boolean
     disease: string
@@ -23,23 +26,54 @@ export default function DiseaseDetectionPage() {
     { id: 3, date: L.time.daysAgo, time: '3:45 PM', disease: L.mockDiseases.healthy, confidence: 99, severity: L.severity.none },
   ]
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       const reader = new FileReader()
       reader.onload = (event) => {
         setSelectedImage(event.target?.result as string)
-        // Simulate AI detection
-        setTimeout(() => {
-          setDetectionResults({
-            detected: Math.random() > 0.5,
-            disease: [L.mockDiseases.rust, L.mockDiseases.mildew, L.mockDiseases.blight][Math.floor(Math.random() * 3)],
-            confidence: 85 + Math.random() * 15,
-            severity: [L.severity.low, L.severity.medium, L.severity.high][Math.floor(Math.random() * 3)],
-          })
-        }, 1500)
       }
       reader.readAsDataURL(file)
+
+      setLoading(true)
+      setError(null)
+      setDetectionResults(null)
+
+      try {
+        const formData = new FormData()
+        formData.append("image", file)
+
+        const res = await apiFetch(API.cv, {
+          method: "POST",
+          body: formData,
+        })
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const json = await res.json()
+        const data = json.data
+        if (json.success && data) {
+          const diseaseName = data.prediction || "Unknown"
+          const isHealthy = diseaseName.toLowerCase().includes("healthy")
+
+          setDetectionResults({
+            detected: !isHealthy,
+            disease: diseaseName,
+            confidence: data.confidence || 90.0,
+            severity: isHealthy
+              ? L.severity.none
+              : (data.confidence || 90) > 75
+              ? L.severity.high
+              : L.severity.medium,
+          })
+        } else {
+          throw new Error(json.error || "CV detection failed")
+        }
+      } catch (err: any) {
+        console.error(err)
+        setError(err.message || "Failed to process image")
+      } finally {
+        setLoading(false)
+      }
     }
   }
 
@@ -81,6 +115,21 @@ export default function DiseaseDetectionPage() {
                   <h3 className="text-lg font-semibold mb-4 text-foreground">{L.uploadedImage}</h3>
                   <img src={selectedImage} alt="Uploaded plant" className="w-full h-96 object-cover rounded-lg mb-4" />
                   
+                  {loading && (
+                    <div className="flex items-center justify-center p-8 bg-muted/20 rounded-lg">
+                      <div className="text-center animate-pulse">
+                        <div className="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">Analyzing image using AI model...</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm mb-4">
+                      {error}
+                    </div>
+                  )}
+
                   {detectionResults && (
                     <div className={`p-4 rounded-lg ${detectionResults.detected ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
                       <div className="flex items-center justify-between">

@@ -136,7 +136,9 @@ def _month_date_range(year: int, month: int) -> Tuple[str, str]:
     end = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
     return start, end
 
-def classify_soil_texture(row: pd.Series) -> str:
+def classify_soil_texture(row: pd.Series) -> Optional[str]:
+    if pd.isna(row["soil_clay"]) or pd.isna(row["soil_sand"]):
+        return np.nan
     if row["soil_clay"] > CLAY_THRESHOLD:
         return "Clay"
     if row["soil_sand"] > SAND_THRESHOLD:
@@ -144,18 +146,24 @@ def classify_soil_texture(row: pd.Series) -> str:
     return "Loam"
 
 def add_agronomic_features(df: pd.DataFrame) -> pd.DataFrame:
-    df["precip_sum"] = df["precip_sum"].clip(lower=0.1)
-    df["aet_mean"] = df["aet_mean"].clip(lower=0.1)
+    if "precip_sum" in df.columns:
+        df["precip_sum"] = df["precip_sum"].clip(lower=0.1)
+    if "aet_mean" in df.columns:
+        df["aet_mean"] = df["aet_mean"].clip(lower=0.1)
     if "soil_moisture" in df.columns:
         df["soil_moisture"] = df["soil_moisture"].clip(lower=0.1)
 
-    df["soil_texture_class"] = df.apply(classify_soil_texture, axis=1)
-    df["fertility_index"] = sum(df[col] * weight for col, weight in FERTILITY_WEIGHTS.items())
+    if "soil_clay" in df.columns and "soil_sand" in df.columns:
+        df["soil_texture_class"] = df.apply(classify_soil_texture, axis=1)
 
-    if "pet_mean" in df.columns:
+    if all(col in df.columns for col in FERTILITY_WEIGHTS):
+        df["fertility_index"] = sum(df[col] * weight for col, weight in FERTILITY_WEIGHTS.items())
+
+    if "precip_sum" in df.columns and "pet_mean" in df.columns:
         df["aridity_index"] = df["precip_sum"] / df["pet_mean"].replace(0, 0.1)
 
-    df["water_balance"] = df["precip_sum"] - df["aet_mean"]
+    if "precip_sum" in df.columns and "aet_mean" in df.columns:
+        df["water_balance"] = df["precip_sum"] - df["aet_mean"]
     return df
 
 # =============================================================================
@@ -233,6 +241,7 @@ def step2_soilgrids():
     soil_df = soil_df.rename(columns=SOIL_RENAME)
 
     df_v3 = df_v2.merge(soil_df, on="Field_ID", how="left")
+    df_v3 = add_agronomic_features(df_v3)
     df_v3.to_csv(OUTPUT_V3, index=False)
     logger.info(f"Step 2 complete. Saved to {OUTPUT_V3}")
 

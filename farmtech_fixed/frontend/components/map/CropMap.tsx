@@ -50,7 +50,8 @@ export default function CropMap({ selectedCrop, year = 2024 }: CropMapProps) {
     const fetchFields = async () => {
       setLoading(true);
       try {
-        let url = `/api/ai_core/fields/map/?year=${year}`;
+        const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+        let url = `${BASE_URL}/api/ai/fields/map/?year=${year}`;
         if (selectedCrop && selectedCrop !== "all") {
           url += `&crop=${selectedCrop}`;
         }

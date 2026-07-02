@@ -31,26 +31,6 @@ interface ForecastPoint {
   label: string
 }
 
-const mockPrices: CropPrice[] = [
-  { id: "1", name: "Wheat",  unit: "EGP/Ton", currentPrice: 8500,  dailyChange:  2.5,  trend: "up",     marketRegion: "Cairo" },
-  { id: "2", name: "Corn",   unit: "EGP/Ton", currentPrice: 7200,  dailyChange: -1.2,  trend: "down",   marketRegion: "Cairo" },
-  { id: "3", name: "Cotton", unit: "EGP/Ton", currentPrice: 15800, dailyChange:  1.8,  trend: "up",     marketRegion: "Cairo" },
-  { id: "4", name: "Rice",   unit: "EGP/Ton", currentPrice: 9500,  dailyChange:  0.0,  trend: "stable", marketRegion: "Cairo" },
-  { id: "5", name: "Tomato", unit: "EGP/Kg",  currentPrice: 2.5,   dailyChange: -3.2,  trend: "down",   marketRegion: "Cairo" },
-  { id: "6", name: "Potato", unit: "EGP/Kg",  currentPrice: 1.8,   dailyChange:  1.5,  trend: "up",     marketRegion: "Cairo" },
-]
-
-const priceTrendData = [
-  { day: "Dec 1",  wheat: 8200, corn: 7400, cotton: 15200, rice: 9500 },
-  { day: "Dec 3",  wheat: 8350, corn: 7250, cotton: 15400, rice: 9500 },
-  { day: "Dec 5",  wheat: 8400, corn: 7300, cotton: 15600, rice: 9500 },
-  { day: "Dec 7",  wheat: 8450, corn: 7200, cotton: 15700, rice: 9500 },
-  { day: "Dec 9",  wheat: 8480, corn: 7150, cotton: 15750, rice: 9500 },
-  { day: "Dec 11", wheat: 8500, corn: 7180, cotton: 15800, rice: 9500 },
-  { day: "Dec 13", wheat: 8520, corn: 7200, cotton: 15850, rice: 9500 },
-  { day: "Dec 15", wheat: 8500, corn: 7180, cotton: 15800, rice: 9500 },
-]
-
 // Quarter label helper
 const quarterLabel = (year: number, quarter: number) => `Q${quarter} ${year}`
 
@@ -274,82 +254,118 @@ export default function MarketPricesPage() {
               </CardContent>
             </Card>
 
-            {/* Price Table */}
+            {/* Price Table – populated from AI Forecast data */}
             <Card className="mb-8 bg-card border-border">
               <CardHeader>
                 <CardTitle>{L.priceTableTitle}</CardTitle>
                 <CardDescription>
-                  {L.priceTableDesc} {regions.find((r) => r.id === selectedRegion)?.label}
+                  {forecastFetched
+                    ? `Showing AI forecast prices for ${selectedCommodity} · ${regions.find((r) => r.id === selectedRegion)?.label}`
+                    : `${L.priceTableDesc} ${regions.find((r) => r.id === selectedRegion)?.label}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-start py-3 px-4 font-semibold text-foreground">{L.thCrop}</th>
-                        <th className="text-start py-3 px-4 font-semibold text-foreground">{L.thUnitPrice}</th>
-                        <th className="text-start py-3 px-4 font-semibold text-foreground">{L.thDailyChange}</th>
-                        <th className="text-end py-3 px-4 font-semibold text-foreground">{L.thTrend}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mockPrices.map((crop) => (
-                        <tr key={crop.id} className="border-b border-border hover:bg-muted/50 transition-colors">
-                          <td className="py-4 px-4 font-medium text-foreground">
-                            {L.crops[crop.name.toLowerCase() as keyof typeof L.crops]}
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className="text-lg font-bold text-foreground">
-                              {crop.currentPrice} {crop.unit}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4">
-                            <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold ${
-                              crop.dailyChange > 0
-                                ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"
-                                : crop.dailyChange < 0
-                                  ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
-                                  : "bg-gray-100 text-gray-800 dark:bg-gray-950 dark:text-gray-300"
-                            }`}>
-                              {crop.dailyChange > 0 && <TrendingUp className="w-4 h-4" />}
-                              {crop.dailyChange < 0 && <TrendingDown className="w-4 h-4" />}
-                              {Math.abs(crop.dailyChange)}%
-                            </div>
-                          </td>
-                          <td className="py-4 px-4 text-end">
-                            {crop.trend === "up"     && <Badge className="bg-green-600 text-white">{L.trendRising}</Badge>}
-                            {crop.trend === "down"   && <Badge className="bg-red-600 text-white">{L.trendFalling}</Badge>}
-                            {crop.trend === "stable" && <Badge className="bg-blue-600 text-white">{L.trendStable}</Badge>}
-                          </td>
+                {forecastFetched && forecastData.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-start py-3 px-4 font-semibold text-foreground">Quarter</th>
+                          <th className="text-start py-3 px-4 font-semibold text-foreground">Year</th>
+                          <th className="text-start py-3 px-4 font-semibold text-foreground">Forecast Price</th>
+                          <th className="text-end py-3 px-4 font-semibold text-foreground">{L.thTrend}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {forecastData.map((row, idx) => {
+                          const prev = idx > 0 ? forecastData[idx - 1].price : row.price
+                          const change = row.price - prev
+                          return (
+                            <tr key={row.label} className="border-b border-border hover:bg-muted/50 transition-colors">
+                              <td className="py-4 px-4 font-medium text-foreground">Q{row.quarter}</td>
+                              <td className="py-4 px-4 text-muted-foreground">{row.year}</td>
+                              <td className="py-4 px-4">
+                                <span className="text-lg font-bold text-foreground">
+                                  {row.price.toLocaleString("en-EG", { maximumFractionDigits: 0 })} EGP/Ton
+                                </span>
+                              </td>
+                              <td className="py-4 px-4 text-end">
+                                {idx === 0 ? (
+                                  <Badge className="bg-blue-600 text-white">{L.trendStable}</Badge>
+                                ) : change > 0 ? (
+                                  <Badge className="bg-green-600 text-white flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />{L.trendRising}
+                                  </Badge>
+                                ) : change < 0 ? (
+                                  <Badge className="bg-red-600 text-white flex items-center gap-1">
+                                    <TrendingDown className="w-3 h-3" />{L.trendFalling}
+                                  </Badge>
+                                ) : (
+                                  <Badge className="bg-blue-600 text-white">{L.trendStable}</Badge>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <svg className="w-14 h-14 mx-auto mb-4 opacity-20" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" />
+                    </svg>
+                    <p className="font-semibold text-foreground mb-1">No price data yet</p>
+                    <p className="text-sm">Use the AI Price Forecast above to load commodity prices.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* Historical Chart */}
+            {/* Forecast Trend Chart – uses real API data */}
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle>{L.chartTitle}</CardTitle>
-                <CardDescription>{L.chartDesc}</CardDescription>
+                <CardDescription>
+                  {forecastFetched
+                    ? `4-quarter AI forecast trend for ${selectedCommodity}`
+                    : L.chartDesc}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={priceTrendData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                    <XAxis dataKey="day" stroke="var(--color-muted-foreground)" />
-                    <YAxis stroke="var(--color-muted-foreground)" />
-                    <Tooltip contentStyle={{ backgroundColor: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "0.5rem" }} />
-                    <Legend />
-                    <Line type="monotone" dataKey="wheat"  stroke="var(--color-chart-1)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} name={L.crops.wheat}  />
-                    <Line type="monotone" dataKey="corn"   stroke="var(--color-chart-2)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} name={L.crops.corn}   />
-                    <Line type="monotone" dataKey="cotton" stroke="var(--color-chart-3)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} name={L.crops.cotton} />
-                    <Line type="monotone" dataKey="rice"   stroke="var(--color-chart-4)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} name={L.crops.rice}   />
-                  </LineChart>
-                </ResponsiveContainer>
+                {forecastFetched && forecastData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={350}>
+                    <LineChart data={forecastData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                      <XAxis dataKey="label" stroke="var(--color-muted-foreground)" />
+                      <YAxis
+                        stroke="var(--color-muted-foreground)"
+                        tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`}
+                      />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "0.5rem" }}
+                        formatter={(v: number) => [`${v.toLocaleString()} EGP/Ton`, "Forecast"]}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="price"
+                        stroke="var(--color-chart-1)"
+                        strokeWidth={3}
+                        dot={{ r: 6 }}
+                        activeDot={{ r: 8 }}
+                        name={`${selectedCommodity} Price`}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-3">
+                    <svg className="w-16 h-16 opacity-20" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" />
+                    </svg>
+                    <p className="text-sm">Select a commodity and click <strong>Get AI Forecast</strong> to see the price trend chart.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

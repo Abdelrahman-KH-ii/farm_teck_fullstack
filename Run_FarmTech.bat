@@ -29,10 +29,10 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: 2. Check Frontend Dependencies
-if not exist "%FRONTEND_DIR%\node_modules" (
+if not exist "%FRONTEND_DIR%\node_modules\react-leaflet" (
     echo [1/4] Installing frontend dependencies...
     pushd "%FRONTEND_DIR%"
-    call npm.cmd install
+    call npm.cmd install --legacy-peer-deps
     popd
 ) else (
     echo [1/4] Frontend dependencies found.

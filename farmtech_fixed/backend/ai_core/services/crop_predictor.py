@@ -8,9 +8,9 @@ import os
 MODEL_DIR = os.path.join(os.path.dirname(__file__), '..', 'ml_models', 'crop_recommendation')
 
 try:
-    model = joblib.load(os.path.join(MODEL_DIR, "crop_model.pkl"))
-    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
-    label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
+    model = joblib.load(os.path.join(MODEL_DIR, "xgboost_78_accuracy_model.joblib"))
+    scaler = joblib.load(os.path.join(MODEL_DIR, "robust_scaler.joblib"))
+    label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.joblib"))
 
     with open(os.path.join(MODEL_DIR, "feature_order.json")) as f:
         feature_names = json.load(f)
