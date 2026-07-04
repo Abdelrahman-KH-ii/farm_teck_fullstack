@@ -42,6 +42,17 @@ if not exist "%FRONTEND_DIR%\node_modules\react-leaflet" (
 echo [2/4] RAG pre-warm skipped (disabled)...
 echo.
 
+:: 4. Seeding check
+echo [2.5/4] Checking crop fields database...
+"%VENV_PYTHON%" -c "from django.core.management import call_command; import django; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings'); django.setup(); from ai_core.models import CropField; import sys; sys.exit(0 if CropField.objects.exists() else 1)" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo Seeding 64,100 dynamic records into CropField database...
+    "%VENV_PYTHON%" "%BACKEND_DIR%\manage.py" import_cropfields --mock
+) else (
+    echo CropField database already populated.
+)
+echo.
+
 :: 4. Launch Backend and Frontend
 echo [3/4] Launching Backend and Frontend...
 echo Press Ctrl+C to stop both servers.

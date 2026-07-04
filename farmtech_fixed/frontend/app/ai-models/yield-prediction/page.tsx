@@ -5,6 +5,7 @@ import Header from '@/components/header'
 import SidebarNav from '@/components/sidebar-nav'
 import { useLanguage } from "@/lib/language-context"
 import { fetchYieldPrediction } from "@/lib/api"
+import { pushNotification, pushFarmHistory } from '@/lib/utils'
 
 export default function YieldPredictionPage() {
   const [formData, setFormData] = useState({
@@ -19,7 +20,7 @@ export default function YieldPredictionPage() {
     humidity: 65,
   })
 
-  const { t, dir } = useLanguage()
+  const { t, dir, language } = useLanguage()
   const L = t.yieldPrediction
 
   // AI prediction state
@@ -54,12 +55,32 @@ export default function YieldPredictionPage() {
         formData.lat, formData.lon, formData.year, formData.cropType
       )
       setAiResult(result)
+
+      const isAr = language === 'ar'
+      const val = result.yield_value?.toFixed(2) || 0
+      const unit = result.unit || 'tons/ha'
+
+      pushNotification(
+        "task",
+        isAr ? "توقع إنتاجية جديد جاهز" : "Yield Prediction Completed",
+        isAr
+          ? `المحصول المتوقع: (${formData.cropType}) لعام ${formData.year}. الإنتاجية المقدرة: ${val} ${unit === 'tons/ha' ? 'طن/هكتار' : unit} (المصدر: ${result.source}).`
+          : `Yield prediction for (${formData.cropType}) in ${formData.year} completed. Estimated yield: ${val} ${unit} (Source: ${result.source}).`
+      )
+
+      pushFarmHistory(
+        "prediction",
+        isAr ? "تحليل توقعات الإنتاجية" : "Yield Prediction Analysis",
+        isAr
+          ? `تم حساب الإنتاجية المتوقعة لـ (${formData.cropType}): ${val} ${unit === 'tons/ha' ? 'طن/هكتار' : unit}.`
+          : `Calculated predicted yield for (${formData.cropType}): ${val} ${unit}.`
+      )
     } catch (e: any) {
       setAiError(e.message ?? "Prediction failed")
     } finally {
       setAiLoading(false)
     }
-  }, [formData.lat, formData.lon, formData.year, formData.cropType])
+  }, [formData.lat, formData.lon, formData.year, formData.cropType, language])
 
   return (
     <div dir={dir} className="flex h-dvh max-h-dvh w-full overflow-hidden bg-background text-foreground">

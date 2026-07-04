@@ -11,19 +11,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useLanguage } from "@/lib/language-context"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
+import { apiFetch, API } from "@/lib/api"
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading, logout } = useAuth()
+  const { isAuthenticated, isLoading, logout, user, updateUser } = useAuth()
   const { language, setLanguage, t } = useLanguage()
   const { resolvedTheme, setTheme } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
-
   const [formData, setFormData] = useState({
-    name: "Ahmed Mabrouk ",
-    phone: "+201124953930",
-    email: "ahmed.mabrouk@farmtec.com",
+    name: "",
+    phone: "",
+    email: "",
     farmLocation: "Cairo, Egypt",
   })
 
@@ -34,6 +34,36 @@ export default function SettingsPage() {
     irrigationReminders: true,
     marketNews: false,
   })
+
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Initialize profile values from context when loaded
+  useEffect(() => {
+    if (user) {
+      const loc = typeof window !== 'undefined' ? localStorage.getItem('farmtec-settings-location') || "Cairo, Egypt" : "Cairo, Egypt"
+      setFormData({
+        name: user.username || "",
+        phone: user.phone_number || "",
+        email: user.email || "",
+        farmLocation: loc,
+      })
+    }
+  }, [user])
+
+  // Load preferences from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedUnits = localStorage.getItem('farmtec-settings-units')
+      if (savedUnits) setUnits(savedUnits)
+
+      const savedNotifs = localStorage.getItem('farmtec-settings-notifications')
+      if (savedNotifs) {
+        try { setNotifications(JSON.parse(savedNotifs)) } catch (e) {}
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -53,8 +83,58 @@ export default function SettingsPage() {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
+  const handleUnitsChange = (val: string) => {
+    setUnits(val)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('farmtec-settings-units', val)
+    }
+  }
+
   const handleNotificationChange = (key: keyof typeof notifications) => {
-    setNotifications((prev) => ({ ...prev, [key]: !prev[key] }))
+    setNotifications((prev) => {
+      const updated = { ...prev }
+      updated[key] = !prev[key]
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('farmtec-settings-notifications', JSON.stringify(updated))
+      }
+      return updated
+    })
+  }
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setSaveSuccess(false)
+    setSaveError(null)
+
+    try {
+      const res = await apiFetch(API.profile, {
+        method: 'PUT',
+        body: JSON.stringify({
+          username: formData.name,
+          phone_number: formData.phone,
+        })
+      })
+
+      if (res.ok) {
+        updateUser({
+          username: formData.name,
+          phone_number: formData.phone,
+        })
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('farmtec-settings-location', formData.farmLocation)
+        }
+        setSaveSuccess(true)
+        setTimeout(() => setSaveSuccess(false), 3000)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to update profile')
+      }
+    } catch (err: any) {
+      setSaveError(err.message || 'An error occurred')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -73,7 +153,7 @@ export default function SettingsPage() {
             </div>
 
             {/* Profile Management */}
-            <Card className="mb-6 bg-card border-border">
+            <Card className="mb-6 bg-card border-border shadow-sm">
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary">
@@ -87,75 +167,90 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Name Field */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block">{S.fullName}</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+              <CardContent>
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  {saveSuccess && (
+                    <div className="p-3 bg-green-500/10 text-green-500 border border-green-500/20 rounded-lg text-sm font-semibold">
+                      {language === 'ar' ? 'تم حفظ التعديلات بنجاح!' : 'Profile updated successfully!'}
+                    </div>
+                  )}
 
-                {/* Phone Field */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17.707 12.293l-5.293-5.293a1 1 0 00-1.414 1.414L15.586 12l-4.586 4.586a1 1 0 101.414 1.414l5.293-5.293a1 1 0 000-1.414z" />
-                    </svg>
-                    {S.phone}
-                  </label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+                  {saveError && (
+                    <div className="p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg text-sm font-semibold">
+                      {saveError}
+                    </div>
+                  )}
 
-                {/* Email Field */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
-                    </svg>
-                    {S.email}
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+                  {/* Name Field */}
+                  <div>
+                    <label className="text-sm font-semibold text-foreground mb-2 block">{S.fullName}</label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      required
+                    />
+                  </div>
 
-                {/* Farm Location Field */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2z" />
-                    </svg>
-                    {S.farmLocation}
-                  </label>
-                  <input
-                    type="text"
-                    name="farmLocation"
-                    value={formData.farmLocation}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+                  {/* Phone Field */}
+                  <div>
+                    <label className="text-sm font-semibold text-foreground mb-2 block flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.707 12.293l-5.293-5.293a1 1 0 00-1.414 1.414L15.586 12l-4.586 4.586a1 1 0 101.414 1.414l5.293-5.293a1 1 0 000-1.414z" />
+                      </svg>
+                      {S.phone}
+                    </label>
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
 
-                <div className="pt-4 border-t border-border">
-                  <Button className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold h-11">
-                    {S.saveProfile}
-                  </Button>
-                </div>
+                  {/* Email Field */}
+                  <div>
+                    <label className="text-sm font-semibold text-foreground mb-2 block flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
+                      </svg>
+                      {S.email}
+                    </label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      disabled
+                      className="w-full px-4 py-3 bg-muted border border-border rounded-lg text-muted-foreground cursor-not-allowed opacity-80"
+                    />
+                  </div>
+
+                  {/* Farm Location Field */}
+                  <div>
+                    <label className="text-sm font-semibold text-foreground mb-2 block flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2z" />
+                      </svg>
+                      {S.farmLocation}
+                    </label>
+                    <input
+                      type="text"
+                      name="farmLocation"
+                      value={formData.farmLocation}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+
+                  <div className="pt-4 border-t border-border">
+                    <Button type="submit" disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold h-11">
+                      {saving ? (language === 'ar' ? 'جاري الحفظ...' : 'Saving...') : S.saveProfile}
+                    </Button>
+                  </div>
+                </form>
               </CardContent>
             </Card>
 
@@ -219,7 +314,7 @@ export default function SettingsPage() {
                   </label>
                   <select
                     value={units}
-                    onChange={(e) => setUnits(e.target.value)}
+                    onChange={(e) => handleUnitsChange(e.target.value)}
                     className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     <option value="metric">{S.metric}</option>

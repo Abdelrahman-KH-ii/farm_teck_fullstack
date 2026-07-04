@@ -1,10 +1,33 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useLanguage } from '@/lib/language-context'
+import { apiFetch, API } from '@/lib/api'
+
+interface DashStats {
+  plots_count: number
+  total_area: number
+}
 
 export default function FeaturedSection() {
   const { t } = useLanguage()
   const F = t.dashboard.featured
+
+  const [stats, setStats] = useState<DashStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    apiFetch(API.dashboard)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json) setStats({ plots_count: json.plots_count ?? 0, total_area: json.total_area ?? 0 })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const plotsDisplay = loading ? '…' : stats ? String(stats.plots_count) : '--'
+  const areaDisplay  = loading ? '…' : stats ? `${stats.total_area.toFixed(1)} ha` : '--'
 
   return (
     <div className="relative h-48 md:h-64 rounded-xl overflow-hidden mb-8 border border-border shadow-lg">
@@ -22,13 +45,19 @@ export default function FeaturedSection() {
         </div>
 
         <div className="hidden lg:flex gap-6">
-          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-4 text-white text-center">
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-4 text-white text-center min-w-[100px]">
             <p className="text-sm font-semibold opacity-80 mb-1">{F.activePlots}</p>
-            <p className="text-3xl font-bold">--</p>
+            {loading
+              ? <div className="h-9 w-12 mx-auto bg-white/20 animate-pulse rounded" />
+              : <p className="text-3xl font-bold">{plotsDisplay}</p>
+            }
           </div>
-          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-4 text-white text-center">
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-4 text-white text-center min-w-[110px]">
             <p className="text-sm font-semibold opacity-80 mb-1">{F.totalArea}</p>
-            <p className="text-3xl font-bold">--</p>
+            {loading
+              ? <div className="h-9 w-16 mx-auto bg-white/20 animate-pulse rounded" />
+              : <p className="text-3xl font-bold">{areaDisplay}</p>
+            }
           </div>
         </div>
       </div>

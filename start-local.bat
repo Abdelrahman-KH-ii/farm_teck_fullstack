@@ -1,1 +1,1 @@
-REM Temporary file cleared
+.venv\Scripts\python.exe test_soil_api.py

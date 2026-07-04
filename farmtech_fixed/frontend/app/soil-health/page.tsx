@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react"
 import SidebarNav from "@/components/sidebar-nav"
 import Header from "@/components/header"
+import { pushNotification, pushFarmHistory } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
@@ -39,7 +40,7 @@ interface SoilData {
 
 export default function SoilHealthPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const L = t.soilHealth
 
   const [soilData, setSoilData] = useState<SoilData | null>(null)
@@ -50,13 +51,45 @@ export default function SoilHealthPage() {
   // Default Egypt coords (Cairo region)
   const [lat, setLat] = useState(30.0)
   const [lon, setLon] = useState(31.0)
+  const [selectedCrop, setSelectedCrop] = useState("wheat")
 
-  const fetchData = useCallback(async () => {
+  const [fields, setFields] = useState<any[]>([])
+  const [selectedFieldId, setSelectedFieldId] = useState<string>("manual")
+
+  // Load fields on mount
+  useEffect(() => {
+    async function loadFields() {
+      try {
+        const res = await apiFetch(API.fields)
+        if (res.ok) {
+          const data = await res.json()
+          const list = Array.isArray(data) ? data : data.results ?? []
+          setFields(list)
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+    loadFields()
+  }, [])
+
+  const handleFieldChange = (fieldId: string) => {
+    setSelectedFieldId(fieldId)
+    if (fieldId === "manual") return
+    const field = fields.find(f => String(f.id) === fieldId)
+    if (field) {
+      setLat(parseFloat(field.latitude) || parseFloat(field.lat) || 30.0)
+      setLon(parseFloat(field.longitude) || parseFloat(field.lon) || 31.0)
+      setSelectedCrop(field.crop_type || field.crop || "wheat")
+    }
+  }
+
+  const fetchData = useCallback(async (isUserClick = false) => {
     setLoading(true)
     setError(null)
     try {
       const [soilRes, dashRes] = await Promise.all([
-        fetchSoilHealth({ lat, lon }),
+        fetchSoilHealth({ lat, lon, crop: selectedCrop }),
         apiFetch(API.dashboard),
       ])
 
@@ -66,15 +99,38 @@ export default function SoilHealthPage() {
         const dash = await dashRes.json()
         setDashboardData(dash.latest_soil_record ?? null)
       }
+
+      if (isUserClick) {
+        const activeField = fields.find(f => String(f.id) === selectedFieldId)
+        pushNotification(
+          "alert",
+          language === "ar" ? "تحليل صحة التربة ناجح" : "Soil Health Analysis Successful",
+          language === "ar"
+            ? `تم تحليل صحة التربة لمحصول (${selectedCrop}) بنجاح. النتيجة الإجمالية للتربة: ${soilRes.health_score} (${soilRes.status_label}).`
+            : `Soil health analysis for crop (${selectedCrop}) completed successfully. Overall score: ${soilRes.health_score} (${soilRes.status_label}).`,
+          activeField?.id,
+          activeField?.name
+        )
+
+        pushFarmHistory(
+          "soil",
+          language === "ar" ? "مسح صحة التربة" : "Soil Health Scan",
+          language === "ar"
+            ? `تحليل التربة لمحصول (${selectedCrop}) عند خط عرض ${lat.toFixed(2)} وخط طول ${lon.toFixed(2)}. النتيجة: ${soilRes.health_score}.`
+            : `Soil health scan for (${selectedCrop}) at (${lat.toFixed(2)}, ${lon.toFixed(2)}). Result: ${soilRes.health_score}.`,
+          activeField?.id,
+          activeField?.name
+        )
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load soil health data")
     } finally {
       setLoading(false)
     }
-  }, [lat, lon])
+  }, [lat, lon, selectedCrop, language, fields, selectedFieldId])
 
   useEffect(() => {
-    fetchData()
+    fetchData(false)
   }, [fetchData])
 
   // Build nutrient gauges from real API data
@@ -168,7 +224,7 @@ export default function SoilHealthPage() {
                 <p className="text-muted-foreground">{L.subtitle}</p>
               </div>
               <Button
-                onClick={fetchData}
+                onClick={() => fetchData(true)}
                 disabled={loading}
                 variant="outline"
                 className="gap-2"
@@ -178,31 +234,121 @@ export default function SoilHealthPage() {
               </Button>
             </div>
 
-            {/* Loading */}
-            {loading && (
-              <div className="flex items-center justify-center py-20">
-                <div className="text-center">
-                  <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin mx-auto mb-4" />
-                  <p className="text-muted-foreground">Analyzing soil health data…</p>
-                </div>
-              </div>
-            )}
+            {/* Main Side-by-Side Layout Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              
+              {/* Left Column: Settings Form */}
+              <div className="lg:col-span-1 space-y-6">
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Location & Crop</CardTitle>
+                    <CardDescription>Enter parameters for soil analysis</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Select Field Dropdown */}
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        {language === 'ar' ? 'اختر الحقل' : 'Select Field'}
+                      </label>
+                      <select
+                        value={selectedFieldId}
+                        onChange={(e) => handleFieldChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm outline-none focus:ring-2 focus:ring-primary"
+                      >
+                        <option value="manual">{language === 'ar' ? 'إدخال يدوي للإحداثيات' : 'Manual Coordinates'}</option>
+                        {fields.map(f => (
+                          <option key={f.id} value={String(f.id)}>{f.name} ({f.crop_type})</option>
+                        ))}
+                      </select>
+                    </div>
 
-            {/* Error */}
-            {!loading && error && (
-              <div className="py-12 text-center">
-                <div className="inline-flex items-center gap-2 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm mb-4">
-                  <AlertCircle className="w-5 h-5" />
-                  {error}
-                </div>
-                <br />
-                <Button onClick={fetchData} variant="outline" size="sm">Try Again</Button>
-              </div>
-            )}
+                    {/* Crop Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">Crop Type</label>
+                      <select
+                        value={selectedCrop}
+                        onChange={(e) => {
+                          setSelectedCrop(e.target.value)
+                          setSelectedFieldId("manual")
+                        }}
+                        className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+                      >
+                        <option value="wheat">Wheat</option>
+                        <option value="corn">Corn/Maize</option>
+                        <option value="rice">Rice</option>
+                        <option value="cotton">Cotton</option>
+                        <option value="tomato">Tomato</option>
+                        <option value="potato">Potato</option>
+                      </select>
+                    </div>
 
-            {/* Content */}
-            {!loading && !error && soilData && (
-              <>
+                    {/* Coordinates */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">Latitude</label>
+                        <input
+                          type="number" step="0.01"
+                          value={lat}
+                          onChange={(e) => {
+                            setLat(parseFloat(e.target.value) || 0)
+                            setSelectedFieldId("manual")
+                          }}
+                          className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">Longitude</label>
+                        <input
+                          type="number" step="0.01"
+                          value={lon}
+                          onChange={(e) => {
+                            setLon(parseFloat(e.target.value) || 0)
+                            setSelectedFieldId("manual")
+                          }}
+                          className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={() => fetchData(true)}
+                      disabled={loading}
+                      className="w-full gap-2 mt-2"
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      Analyze Soil Health
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Right Column: Loading / Error / Results */}
+              <div className="lg:col-span-3">
+                {/* Loading */}
+                {loading && (
+                  <div className="flex items-center justify-center py-20">
+                    <div className="text-center">
+                      <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin mx-auto mb-4" />
+                      <p className="text-muted-foreground">Analyzing soil health data…</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error */}
+                {!loading && error && (
+                  <div className="py-12 text-center">
+                    <div className="inline-flex items-center gap-2 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm mb-4">
+                      <AlertCircle className="w-5 h-5" />
+                      {error}
+                    </div>
+                    <br />
+                    <Button onClick={fetchData} variant="outline" size="sm">Try Again</Button>
+                  </div>
+                )}
+
+                {/* Content */}
+                {!loading && !error && soilData && (
+                  <>
                 {/* Overall Health Score Banner */}
                 <Card className="mb-6 bg-gradient-to-r from-primary/5 to-accent/5 border-primary/20">
                   <CardContent className="pt-6">
@@ -429,6 +575,8 @@ export default function SoilHealthPage() {
                 </Card>
               </>
             )}
+              </div>
+            </div>
           </div>
         </main>
       </div>

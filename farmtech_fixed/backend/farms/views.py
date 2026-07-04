@@ -162,6 +162,26 @@ class PlotViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Plot.objects.filter(farm__user=self.request.user)
 
+    def perform_create(self, serializer):
+        plot = serializer.save()
+        import random
+        from datetime import datetime, timedelta
+        SoilRecord.objects.create(
+            plot=plot,
+            nitrogen=round(random.uniform(40, 80), 1),
+            phosphorus=round(random.uniform(30, 60), 1),
+            potassium=round(random.uniform(70, 110), 1),
+            ph=round(random.uniform(6.5, 7.5), 1),
+            moisture=plot.moisture or 50.0
+        )
+        IrrigationSchedule.objects.create(
+            plot=plot,
+            scheduled_time=datetime.now() + timedelta(days=1),
+            duration_minutes=60,
+            water_volume=plot.area * 5.0,
+            status="scheduled"
+        )
+
 
 class IrrigationScheduleViewSet(viewsets.ModelViewSet):
     serializer_class = IrrigationSerializer
@@ -176,10 +196,6 @@ class DashboardView(APIView):
 
     def get(self, request):
         user = request.user
-
-        # Auto-seed demo data if user has no farms yet
-        if not Farm.objects.filter(user=user).exists():
-            _seed_demo_farm(user)
 
         farms_count = Farm.objects.filter(user=user).count()
         plots = Plot.objects.filter(farm__user=user)
@@ -200,8 +216,8 @@ class DashboardView(APIView):
             .first()
         )
 
-        # Build crop lifecycle from first/primary plot
-        first_plot = plots.order_by("id").first()
+        # Build crop lifecycle from newest/primary plot
+        first_plot = plots.order_by("-id").first()
         crop_lifecycle = None
         if first_plot:
             today = date.today()

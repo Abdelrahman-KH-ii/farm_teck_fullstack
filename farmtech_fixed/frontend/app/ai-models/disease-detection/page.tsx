@@ -5,6 +5,7 @@ import Header from '@/components/header'
 import SidebarNav from '@/components/sidebar-nav'
 import { useLanguage } from "@/lib/language-context"
 import { apiFetch, API } from '@/lib/api'
+import { pushNotification } from '@/lib/utils'
 
 export default function DiseaseDetectionPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
@@ -17,14 +18,28 @@ export default function DiseaseDetectionPage() {
     severity: string
   } | null>(null)
 
-  const { t, dir } = useLanguage()
+  const { t, dir, language } = useLanguage()
   const L = t.diseaseDetection
 
-  const recentScans = [
-    { id: 1, date: L.time.today, time: '2:30 PM', disease: L.mockDiseases.rust, confidence: 92, severity: L.severity.high },
-    { id: 2, date: L.time.yesterday, time: '10:15 AM', disease: L.mockDiseases.mildew, confidence: 78, severity: L.severity.medium },
-    { id: 3, date: L.time.daysAgo, time: '3:45 PM', disease: L.mockDiseases.healthy, confidence: 99, severity: L.severity.none },
-  ]
+  const [scans, setScans] = useState<any[]>([])
+
+  useEffect(() => {
+    const saved = localStorage.getItem('farmtec-recent-scans')
+    if (saved) {
+      try {
+        setScans(JSON.parse(saved))
+        return
+      } catch (e) {}
+    }
+
+    const defaults = [
+      { id: 1, date: L.time.today, time: '2:30 PM', disease: L.mockDiseases.rust, confidence: 92, severity: L.severity.high },
+      { id: 2, date: L.time.yesterday, time: '10:15 AM', disease: L.mockDiseases.mildew, confidence: 78, severity: L.severity.medium },
+      { id: 3, date: L.time.daysAgo, time: '3:45 PM', disease: L.mockDiseases.healthy, confidence: 99, severity: L.severity.none },
+    ]
+    setScans(defaults)
+    localStorage.setItem('farmtec-recent-scans', JSON.stringify(defaults))
+  }, [language, L])
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -54,17 +69,61 @@ export default function DiseaseDetectionPage() {
         if (json.success && data) {
           const diseaseName = data.prediction || "Unknown"
           const isHealthy = diseaseName.toLowerCase().includes("healthy")
+          const conf = Math.round(data.confidence || 90.0)
+          const sev = isHealthy ? "none" : conf > 75 ? "high" : "medium"
 
           setDetectionResults({
             detected: !isHealthy,
             disease: diseaseName,
-            confidence: data.confidence || 90.0,
+            confidence: conf,
             severity: isHealthy
               ? L.severity.none
-              : (data.confidence || 90) > 75
+              : conf > 75
               ? L.severity.high
               : L.severity.medium,
           })
+
+          const isAr = language === 'ar'
+          const dateStr = isAr ? L.time.today : 'Today'
+          const now = new Date()
+          const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+          const newScan = {
+            id: Date.now(),
+            date: dateStr,
+            time: timeStr,
+            disease: diseaseName,
+            confidence: conf,
+            severity: isHealthy
+              ? L.severity.none
+              : conf > 75
+              ? L.severity.high
+              : L.severity.medium,
+          }
+
+          setScans(prev => {
+            const updated = [newScan, ...prev]
+            localStorage.setItem('farmtec-recent-scans', JSON.stringify(updated))
+            return updated
+          })
+
+          if (isHealthy) {
+            pushNotification(
+              "disease",
+              isAr ? "تحليل مسح النبات سليم" : "Plant Scan Result: Healthy",
+              isAr 
+                ? `مسح النبات تم بنجاح. النتيجة: النبات سليم وبصحة جيدة (نسبة التأكيد: ${conf}%).`
+                : `Plant disease scan completed. Result: Healthy (Confidence: ${conf}%).`
+            )
+          } else {
+            pushNotification(
+              "disease",
+              isAr ? "تحذير: تم اكتشاف إصابة مرضية" : "Alert: Plant Disease Detected",
+              isAr
+                ? `تم الكشف عن مرض (${diseaseName}) في المسح الأخير بنسبة تأكيد ${conf}%، ومستوى الخطورة ${sev === 'high' ? 'عالي' : 'متوسط'}.`
+                : `Potential disease (${diseaseName}) detected in scan with ${conf}% confidence. Severity: ${sev.toUpperCase()}.`
+            )
+          }
         } else {
           throw new Error(json.error || "CV detection failed")
         }
@@ -169,7 +228,7 @@ export default function DiseaseDetectionPage() {
               <div className="bg-card border border-border rounded-lg p-6">
                 <h3 className="text-lg font-semibold mb-4 text-foreground">{L.recentScans}</h3>
                 <div className="space-y-3">
-                  {recentScans.map((scan) => (
+                  {scans.map((scan) => (
                     <div key={scan.id} className="pb-3 border-b border-border last:border-b-0">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-sm font-medium text-foreground">{scan.disease}</p>

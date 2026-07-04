@@ -1,19 +1,43 @@
 "use client"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { useLanguage } from "@/lib/language-context"
-import { useState } from "react"
+import { apiFetch, API } from "@/lib/api"
 import SidebarNav from "@/components/sidebar-nav"
 import Header from "@/components/header"
 import FeaturedSection from "@/components/featured-section"
 import WeatherWidget from "@/components/weather-widget"
 import SoilStatusCard from "@/components/soil-status-card"
+import CropLifecycle from "@/components/crop-lifecycle"
 import ActiveTasksList from "@/components/active-tasks-list"
 import QuickActionsPanel from "@/components/quick-actions-panel"
-
 import PriceChart from "@/components/price-chart"
 import YieldPredictionChart from "@/components/yield-prediction-chart"
+
+interface DashboardData {
+  plots_count: number
+  total_area: number
+  latest_soil_record: {
+    nitrogen: number
+    phosphorus: number
+    potassium: number
+    ph: number
+    moisture: number
+  } | null
+  crop_lifecycle: {
+    crop_type: string
+    plot_name: string
+    status: string
+    stage: string
+    days_growing: number
+    total_days: number
+    days_until_harvest: number
+    progress_pct: number
+    harvest_date: string
+    health_score: number
+  } | null
+}
 
 export default function Dashboard() {
   const router = useRouter()
@@ -22,11 +46,40 @@ export default function Dashboard() {
   const D = t.dashboard
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
+  const [dashData, setDashData] = useState<DashboardData | null>(null)
+  const [dashLoading, setDashLoading] = useState(true)
+
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/')
     }
   }, [isAuthenticated, isLoading, router])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    let isMounted = true
+    const fetchData = async () => {
+      try {
+        const res = await apiFetch(API.dashboard)
+        if (res.ok && isMounted) {
+          const json = await res.json()
+          if (json) setDashData(json)
+        }
+      } catch (e) {
+      } finally {
+        if (isMounted) setDashLoading(false)
+      }
+    }
+
+    fetchData()
+    const interval = setInterval(fetchData, 30000) // Poll every 30 seconds
+
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
+  }, [isAuthenticated])
 
   if (isLoading) {
     return (
@@ -39,9 +92,7 @@ export default function Dashboard() {
     )
   }
 
-  if (!isAuthenticated) {
-    return null
-  }
+  if (!isAuthenticated) return null
 
   return (
     <div className="flex h-dvh max-h-dvh w-full overflow-hidden bg-background text-foreground">
@@ -52,10 +103,10 @@ export default function Dashboard() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
 
-        {/* Main Dashboard Content */}
         <main className="min-h-0 flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">
-            {/* Featured Banner */}
+
+            {/* Featured Banner (fetches data internally) */}
             <FeaturedSection />
 
             {/* Dashboard Header */}
@@ -75,14 +126,30 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Top Row: Weather & Soil Status */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* ============================================================
+                TOP ROW: 3-column — Weather | Crop Lifecycle | Soil Status
+                ============================================================ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mb-6">
+              {/* Dark green weather card */}
               <WeatherWidget />
-              <SoilStatusCard />
+
+              {/* Crop Lifecycle — passes shared dashboard data */}
+              <CropLifecycle
+                data={dashData?.crop_lifecycle ?? null}
+                loading={dashLoading}
+              />
+
+              {/* Soil Status with NPK bars + moisture gauge */}
+              <SoilStatusCard
+                externalData={dashData?.latest_soil_record ?? null}
+                externalLoading={dashLoading}
+              />
             </div>
 
-            {/* Middle Row: Active Tasks & Quick Actions */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* ============================================================
+                MIDDLE ROW: Active Tasks | Quick Actions
+                ============================================================ */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
               <div className="lg:col-span-1">
                 <ActiveTasksList />
               </div>
@@ -91,16 +158,17 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* ============================================================
+                CHARTS ROW
+                ============================================================ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <PriceChart />
               <YieldPredictionChart />
             </div>
+
           </div>
         </main>
       </div>
-
-
     </div>
   )
 }

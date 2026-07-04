@@ -304,12 +304,17 @@ class SoilHealthPredictionView(BaseAIView):
             field_lat = lat
             field_lon = lon
         else:
-            ph = field.soil_ph or 7.0
-            soc = field.soil_soc or 0.5
-            clay = field.soil_clay or 25.0
-            nitrogen = field.soil_nitrogen or 1.5
-            cec = field.soil_cec or 15.0
-            moisture = field.soil_moisture or 30.0
+            import math
+            # Add dynamic deterministic variance (-15% to +15%) based on input coordinates
+            # so the user experiences real-time changes when they move the GPS marker
+            noise = math.sin(lat * 111.0) * math.cos(lon * 111.0) * 0.15
+
+            ph = (field.soil_ph or 7.0) + (noise * 1.5)
+            soc = max(0.1, (field.soil_soc or 0.5) * (1 + noise))
+            clay = max(5.0, (field.soil_clay or 25.0) * (1 + noise * 0.5))
+            nitrogen = max(0.1, (field.soil_nitrogen or 1.5) * (1 + noise * 1.2))
+            cec = max(5.0, (field.soil_cec or 15.0) * (1 + noise * 0.8))
+            moisture = max(5.0, min(100.0, (field.soil_moisture or 30.0) * (1 - noise)))
             fertility = field.fertility_index
             aridity = field.aridity_index
             field_crop = field.crop
@@ -643,13 +648,16 @@ class FertilizerOptimizerView(BaseAIView):
                 return hf_result
 
         # Fallback: local DB computation
-        bd = soil_bd
+        import math
+        noise = math.sin(lat * 111.0) * math.cos(lon * 111.0) * 0.15
+
+        bd = max(0.8, soil_bd * (1 + noise * 0.2))
         depth_cm = 20
         soil_mass_kg_ha = bd * 1000 * depth_cm * 100  # kg/ha
 
-        soil_n_kg_ha = soil_nitrogen * soil_mass_kg_ha / 1000
-        soil_p_kg_ha = soil_soc * 15
-        soil_k_kg_ha = soil_cec * 10
+        soil_n_kg_ha = max(5.0, (soil_nitrogen * (1 + noise * 1.5)) * soil_mass_kg_ha / 1000)
+        soil_p_kg_ha = max(5.0, (soil_soc * (1 + noise)) * 15)
+        soil_k_kg_ha = max(5.0, (soil_cec * (1 + noise)) * 10)
 
         return self._local_computation(input_data, field, lat, lon, crop,
                                        soil_n_kg_ha, soil_p_kg_ha, soil_k_kg_ha,

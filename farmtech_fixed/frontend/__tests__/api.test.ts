@@ -1,95 +1,133 @@
-import { analyzeIrrigation, fetchForecast, fetchCommodities, fetchYieldPrediction } from "../lib/api"
+/**
+ * Frontend API Client Tests
+ *
+ * Uses Node.js built-in test runner (node:test) — no jest required.
+ * Run with:  node --experimental-test-snapshots --loader ts-node/esm __tests__/api.test.ts
+ * Or simply: npm test
+ */
 
-// Mock global fetch
-const mockGlobalFetch = (success: boolean, responseData: any, status = 200) => {
-  (global as any).fetch = jest.fn().mockImplementation(() =>
-    Promise.resolve({
-      ok: success,
-      status,
-      json: () => Promise.resolve(responseData),
-    })
-  )
+import { describe, it, before, afterEach } from "node:test"
+import assert from "node:assert/strict"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type FetchResponse = {
+  ok: boolean
+  status: number
+  json: () => Promise<unknown>
 }
 
-describe("Frontend API Client Tests", () => {
-  const originalFetch = (global as any).fetch
+// ─── Minimal fetch mock ───────────────────────────────────────────────────────
 
-  afterEach(() => {
-    (global as any).fetch = originalFetch
-  })
+let _mockedFetch: ((input: RequestInfo | URL, init?: RequestInit) => Promise<FetchResponse>) | null = null
+const originalFetch = globalThis.fetch
 
-  // 1. Happy Paths
-  test("fetchForecast happy path parses prices correctly", async () => {
-    const mockResponse = {
+function mockFetch(ok: boolean, data: unknown, status = 200): void {
+  _mockedFetch = () =>
+    Promise.resolve({
+      ok,
+      status,
+      json: () => Promise.resolve(data),
+    })
+  ;(globalThis as unknown as Record<string, unknown>).fetch = _mockedFetch
+}
+
+function resetFetch(): void {
+  _mockedFetch = null
+  ;(globalThis as unknown as Record<string, unknown>).fetch = originalFetch
+}
+
+// ─── Import API helpers ────────────────────────────────────────────────────────
+
+import {
+  analyzeIrrigation,
+  fetchForecast,
+  fetchCommodities,
+  fetchYieldPrediction,
+} from "../lib/api"
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe("fetchForecast", () => {
+  afterEach(resetFetch)
+
+  it("parses forecast array on success", async () => {
+    mockFetch(true, {
       success: true,
       commodity: "Wheat",
       forecast: [
         { commodity: "Wheat", year: 2026, quarter: 1, price: 16000 },
         { commodity: "Wheat", year: 2026, quarter: 2, price: 16200 },
       ],
-    }
-    mockGlobalFetch(true, mockResponse)
+    })
 
     const result = await fetchForecast("Wheat")
-    expect(result).toHaveLength(2)
-    expect(result[0].price).toBe(16000)
-    expect(result[1].quarter).toBe(2)
+    assert.equal(result.length, 2)
+    assert.equal(result[0].price, 16000)
+    assert.equal(result[1].quarter, 2)
   })
 
-  test("fetchCommodities returns list of crops", async () => {
-    const mockResponse = {
-      success: true,
-      commodities: ["Wheat", "Rice", "Tomato"],
-    }
-    mockGlobalFetch(true, mockResponse)
+  it("throws on HTTP error status", async () => {
+    mockFetch(false, {}, 500)
+    await assert.rejects(() => fetchForecast("Wheat"))
+  })
+})
 
+describe("fetchCommodities", () => {
+  afterEach(resetFetch)
+
+  it("returns commodity list on success", async () => {
+    mockFetch(true, { success: true, commodities: ["Wheat", "Rice", "Tomato"] })
     const result = await fetchCommodities()
-    expect(result).toEqual(["Wheat", "Rice", "Tomato"])
+    assert.deepEqual(result, ["Wheat", "Rice", "Tomato"])
   })
 
-  test("analyzeIrrigation executes POST and returns recommendation", async () => {
-    const mockResponse = {
+  it("returns empty array on failure", async () => {
+    mockFetch(false, {}, 500)
+    const result = await fetchCommodities()
+    assert.deepEqual(result, [])
+  })
+})
+
+describe("analyzeIrrigation", () => {
+  afterEach(resetFetch)
+
+  it("returns recommendation on success", async () => {
+    mockFetch(true, {
       success: true,
       data: {
         irrigation_need_mm_season: 35.5,
         irrigation_class: "Moderate Irrigation Required",
       },
-    }
-    mockGlobalFetch(true, mockResponse)
+    })
 
     const result = await analyzeIrrigation({ lat: 30, lon: 31, crop: "wheat" })
-    expect(result.irrigation_need_mm_season).toBe(35.5)
-    expect(result.irrigation_class).toContain("Moderate")
+    assert.equal(result.irrigation_need_mm_season, 35.5)
+    assert.ok(result.irrigation_class.includes("Moderate"))
   })
 
-  test("fetchYieldPrediction queries yield endpoint", async () => {
-    const mockResponse = {
+  it("throws on API error", async () => {
+    mockFetch(false, { error: "Invalid coordinates" }, 400)
+    await assert.rejects(() => analyzeIrrigation({ lat: 999, lon: 999, crop: "wheat" }))
+  })
+})
+
+describe("fetchYieldPrediction", () => {
+  afterEach(resetFetch)
+
+  it("returns yield value on success", async () => {
+    mockFetch(true, {
       success: true,
-      data: {
-        crop: "wheat",
-        yield_value: 6.8,
-        unit: "Tons/Ha",
-        source: "AI model",
-      },
-    }
-    mockGlobalFetch(true, mockResponse)
+      data: { crop: "wheat", yield_value: 6.8, unit: "Tons/Ha", source: "AI model" },
+    })
 
     const result = await fetchYieldPrediction(30, 31, 2026, "wheat")
-    expect(result.yield_value).toBe(6.8)
-    expect(result.source).toBe("AI model")
+    assert.equal(result.yield_value, 6.8)
+    assert.equal(result.source, "AI model")
   })
 
-  // 2. Error handling & failures
-  test("analyzeIrrigation throws error on API failure status", async () => {
-    mockGlobalFetch(false, { error: "Invalid coordinates passed" }, 400)
-
-    await expect(
-      analyzeIrrigation({ lat: 999, lon: 999, crop: "wheat" })
-    ).rejects.toThrow()
-  })
-
-  test("fetchForecast returns empty array on status error", async () => {
-    mockGlobalFetch(false, {}, 500)
-    await expect(fetchForecast("Wheat")).rejects.toThrow()
+  it("throws on HTTP error", async () => {
+    mockFetch(false, {}, 500)
+    await assert.rejects(() => fetchYieldPrediction(30, 31, 2026, "wheat"))
   })
 })

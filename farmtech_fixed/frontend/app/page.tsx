@@ -5,8 +5,10 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { useLanguage } from '@/lib/language-context'
+import { fetchPublicStats, fetchTestimonials } from '@/lib/api'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { LanguageToggle } from '@/components/language-toggle'
+import { ContactForm } from '@/components/contact-form'
 import {
   BarChart3,
   Bell,
@@ -35,6 +37,15 @@ export default function LandingPage() {
   const { t, dir } = useLanguage()
   const L = t.landing
   const [activeAccordion, setActiveAccordion] = useState<number | null>(0)
+  const [stats, setStats] = useState<any>(null)
+  const [testimonialsList, setTestimonialsList] = useState<any[]>(L.testimonials)
+
+  useEffect(() => {
+    fetchPublicStats().then(setStats).catch(() => {})
+    fetchTestimonials().then(data => {
+      if (data && data.length > 0) setTestimonialsList(data)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -231,7 +242,12 @@ export default function LandingPage() {
 
       <section className="border-y border-emerald-100/80 bg-white/60 px-4 py-14 backdrop-blur-sm dark:border-emerald-900/30 dark:bg-slate-900/40 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
-          {L.statNumbers.map((number, idx) => {
+          {(stats ? [
+            `${stats.active_farmers}+`, 
+            `${stats.accuracy_rate}%`, 
+            `${stats.monitored_crops}+`, 
+            `${stats.water_saved}%`
+          ] : L.statNumbers).map((number, idx) => {
             const Icon = statIcons[idx]
             return (
               <div
@@ -409,25 +425,25 @@ export default function LandingPage() {
             <p className="text-slate-600 dark:text-slate-400">{L.testimonialsDesc}</p>
           </div>
           <div className="grid gap-6 md:grid-cols-3 lg:gap-8">
-            {L.testimonials.map((test) => (
+            {testimonialsList.map((test, idx) => (
               <blockquote
-                key={test.name}
+                key={test.name || idx}
                 className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="mb-4 flex gap-0.5 text-amber-400">
-                  {[1, 2, 3, 4, 5].map((s) => (
+                  {Array.from({ length: test.rating || 5 }).map((_, s) => (
                     <Star key={s} className="h-4 w-4 fill-current" aria-hidden />
                   ))}
                 </div>
                 <p className="flex-1 text-base leading-relaxed text-slate-700 dark:text-slate-300">&ldquo;{test.quote}&rdquo;</p>
                 <footer className="mt-6 flex items-center gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-emerald-600 to-green-700 text-sm font-bold text-white">
-                    {test.initials}
+                    {test.initials || test.name?.charAt(0) || '?'}
                   </div>
                   <div className={testimonialFooter}>
                     <cite className="not-italic font-bold text-slate-900 dark:text-white">{test.name}</cite>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                      {test.role} · {test.location}
+                      {test.role} {test.location ? `· ${test.location}` : ''}
                     </p>
                   </div>
                 </footer>
@@ -492,6 +508,10 @@ export default function LandingPage() {
             </Link>
           </div>
         </div>
+      </section>
+
+      <section className="bg-slate-50/50 px-4 py-16 dark:bg-slate-900/50 sm:px-6 lg:px-8">
+        <ContactForm />
       </section>
 
       <footer className="border-t border-slate-200 bg-slate-950 text-slate-400 dark:border-slate-800">

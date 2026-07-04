@@ -70,7 +70,7 @@ export default function AddFarmPage() {
     )
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!location) {
       setError(L.errNeedGps)
@@ -81,13 +81,77 @@ export default function AddFarmPage() {
       return
     }
 
-    // In production, save to database
-    console.log("Farm data:", {
-      ...formData,
-      location,
-    })
+    setLoading(true)
+    setError("")
 
-    router.push("/my-farm")
+    try {
+      // 1. Create Farm
+      const farmRes = await apiFetch(API.farms, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name,
+          location: "Added from GPS",
+          latitude: location.latitude,
+          longitude: location.longitude,
+          climate_zone: "Temperate",
+          soil_type: "Loamy"
+        })
+      })
+
+      if (!farmRes.ok) throw new Error("Failed to create farm")
+      const farm = await farmRes.json()
+
+      // Calculate harvest date
+      const sowDate = new Date(formData.sowingDate)
+      const harvestDate = new Date(sowDate.getTime() + 120 * 24 * 60 * 60 * 1000)
+      const harvestDateStr = harvestDate.toISOString().split('T')[0]
+
+      // 2. Create Plot
+      await apiFetch(API.plots, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          farm: farm.id,
+          name: `${formData.crop} Plot`,
+          crop_type: formData.crop,
+          area: parseFloat(formData.area),
+          moisture: 50.0,
+          harvest_date: harvestDateStr,
+          status: "healthy",
+          latitude: location.latitude,
+          longitude: location.longitude
+        })
+      })
+
+      // 3. Create CropField (for map)
+      const cropTypeLower = formData.crop.toLowerCase().split(' ')[0]
+      await apiFetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai/fields/`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem('farmtech-access')}`
+        },
+        body: JSON.stringify({
+          farm: farm.id,
+          crop_type: ['wheat', 'corn', 'rice', 'barley', 'soybeans', 'cotton', 'sugarcane'].includes(cropTypeLower) ? cropTypeLower : 'other',
+          latitude: location.latitude,
+          longitude: location.longitude,
+          area: parseFloat(formData.area),
+          color: "#4caf50",
+          soil_type: "Loamy",
+          ndvi: 0.65,
+          soil_moisture: 50.0,
+          temperature: 25.0,
+          humidity: 60.0
+        })
+      })
+
+      router.push("/my-farm")
+    } catch (err: any) {
+      setError(err.message || "Failed to save farm")
+      setLoading(false)
+    }
   }
 
   return (

@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { LanguageToggle } from "@/components/language-toggle"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { apiFetch, API } from "@/lib/api"
 
 interface HeaderProps {
   onMenuClick?: () => void
@@ -71,20 +72,7 @@ export default function Header({ onMenuClick = () => {} }: HeaderProps) {
         <ThemeToggle />
 
         {/* Notification Bell */}
-        <button
-          className="relative p-2 hover:bg-muted rounded-lg transition-colors"
-          aria-label={H.notificationsAria}
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-            />
-          </svg>
-          <span className="absolute top-1 end-1 w-2 h-2 bg-destructive rounded-full" />
-        </button>
+        <NotificationBell H={H} />
 
         {/* Profile Dropdown */}
         <div className="relative">
@@ -140,5 +128,47 @@ export default function Header({ onMenuClick = () => {} }: HeaderProps) {
         </div>
       </div>
     </header>
+  )
+}
+
+function NotificationBell({ H }: { H: any }) {
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  useEffect(() => {
+    async function check() {
+      try {
+        const res = await apiFetch(API.notifications)
+        if (res.ok) {
+          const data = await res.json()
+          const list = Array.isArray(data) ? data : data.results ?? []
+          setUnreadCount(list.filter((n: any) => !n.read_status).length)
+        }
+      } catch (e) {}
+    }
+    check()
+    const interval = setInterval(check, 10000) // Poll every 10 seconds
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <Link
+      href="/notifications"
+      className="relative p-2 hover:bg-muted rounded-lg transition-colors flex items-center justify-center"
+      aria-label={H.notificationsAria}
+    >
+      <svg className="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+        />
+      </svg>
+      {unreadCount > 0 && (
+        <span className="absolute -top-1 -end-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white leading-none">
+          {unreadCount}
+        </span>
+      )}
+    </Link>
   )
 }

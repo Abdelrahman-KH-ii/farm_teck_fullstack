@@ -6,6 +6,7 @@ import SidebarNav from '@/components/sidebar-nav'
 import { useLanguage } from "@/lib/language-context"
 import { fetchFertilizerOptimizer } from '@/lib/api'
 import { BrainCircuit, Loader2, Sparkles, AlertCircle } from 'lucide-react'
+import { pushNotification } from '@/lib/utils'
 
 interface OptimizerResult {
   crop: string
@@ -52,7 +53,7 @@ export default function FertilizerOptimizerPage() {
   const [error, setError] = useState<string | null>(null)
   const [apiResult, setApiResult] = useState<OptimizerResult | null>(null)
 
-  const { t, dir } = useLanguage()
+  const { t, dir, language } = useLanguage()
   const L = t.fertilizerOptimizer
 
   const runOptimization = useCallback(async () => {
@@ -66,6 +67,18 @@ export default function FertilizerOptimizerPage() {
       })
       if (data.status === "success" || data.fertilizer_recommendations) {
         setApiResult(data)
+        
+        const isAr = language === 'ar'
+        const rec = data.fertilizer_recommendations || {}
+        const desc = isAr 
+          ? `توصية سماد لمحصول (${selectedCrop}): إضافة النيتروجين بمقدار ${rec.nitrogen_kg_ha?.toFixed(1) || 0} كجم/هكتار، الفوسفور ${rec.phosphorus_kg_ha?.toFixed(1) || 0} كجم/هكتار، البوتاسيوم ${rec.potassium_kg_ha?.toFixed(1) || 0} كجم/هكتار.`
+          : `Fertilizer recommendation for (${selectedCrop}): Add Nitrogen: ${rec.nitrogen_kg_ha?.toFixed(1) || 0} kg/ha, Phosphorus: ${rec.phosphorus_kg_ha?.toFixed(1) || 0} kg/ha, Potassium: ${rec.potassium_kg_ha?.toFixed(1) || 0} kg/ha.`
+        
+        pushNotification(
+          "task",
+          isAr ? "تم تحديث خطة السماد بنجاح" : "Fertilizer Optimizer Plan Generated",
+          desc
+        )
       } else {
         throw new Error(data.error || "Failed to fetch optimizer recommendations")
       }
@@ -75,7 +88,7 @@ export default function FertilizerOptimizerPage() {
     } finally {
       setLoading(false)
     }
-  }, [lat, lon, selectedCrop])
+  }, [lat, lon, selectedCrop, language])
 
   return (
     <div dir={dir} className="flex h-dvh max-h-dvh w-full overflow-hidden bg-background text-foreground">

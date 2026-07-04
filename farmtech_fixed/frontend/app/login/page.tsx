@@ -152,12 +152,6 @@ export default function LoginPage() {
               </button>
             </form>
 
-            {/* Demo Info */}
-            <div className="bg-gradient-to-r from-emerald-100 dark:from-emerald-900/30 to-green-100 dark:to-green-900/30 border border-emerald-300 dark:border-emerald-800 rounded-xl p-4 mb-6 text-sm">
-              <p className="font-semibold text-slate-900 dark:text-white mb-2">{LP.demoTitle}</p>
-              <p className="text-slate-600 dark:text-slate-400 text-xs">{LP.demoEmailLine}</p>
-              <p className="text-slate-600 dark:text-slate-400 text-xs">{LP.demoPasswordLine}</p>
-            </div>
 
             {/* Sign Up Link */}
             <div className="text-center">

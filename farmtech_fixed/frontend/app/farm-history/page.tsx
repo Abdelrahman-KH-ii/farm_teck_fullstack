@@ -1,62 +1,70 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Header from '@/components/header'
 import SidebarNav from '@/components/sidebar-nav'
 import { useLanguage } from '@/lib/language-context'
 
 export default function FarmHistoryPage() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const L = t.farmHistory
-  const history = [
-    {
-      id: 1,
-      date: L.items[0].date,
-      time: L.items[0].time,
-      event: L.items[0].event,
-      details: L.items[0].details,
-      type: 'prediction',
-    },
-    {
-      id: 2,
-      date: L.items[1].date,
-      time: L.items[1].time,
-      event: L.items[1].event,
-      details: L.items[1].details,
-      type: 'irrigation',
-    },
-    {
-      id: 3,
-      date: L.items[2].date,
-      time: L.items[2].time,
-      event: L.items[2].event,
-      details: L.items[2].details,
-      type: 'disease',
-    },
-    {
-      id: 4,
-      date: L.items[3].date,
-      time: L.items[3].time,
-      event: L.items[3].event,
-      details: L.items[3].details,
-      type: 'fertilizer',
-    },
-    {
-      id: 5,
-      date: L.items[4].date,
-      time: L.items[4].time,
-      event: L.items[4].event,
-      details: L.items[4].details,
-      type: 'weather',
-    },
-    {
-      id: 6,
-      date: L.items[5].date,
-      time: L.items[5].time,
-      event: L.items[5].event,
-      details: L.items[5].details,
-      type: 'soil',
-    },
-  ]
+  const [history, setHistory] = useState<any[]>([])
+
+  useEffect(() => {
+    function load() {
+      const saved = localStorage.getItem('farmtec-history')
+      if (saved) {
+        try {
+          setHistory(JSON.parse(saved))
+          return
+        } catch (e) {}
+      }
+
+      const isAr = language === 'ar'
+      const defaults = [
+        {
+          id: 1,
+          date: isAr ? '4 يوليو 2026' : 'Jul 4, 2026',
+          time: '02:30 PM',
+          event: isAr ? 'مسح صحة التربة' : 'Soil Health Scan',
+          details: isAr ? 'تم إجراء مسح تفصيلي لقطعة الأرض رقم 3 بالدلتا.' : 'Performed high-resolution soil NPK scanning on Plot 3.',
+          type: 'soil',
+        },
+        {
+          id: 2,
+          date: isAr ? '3 يوليو 2026' : 'Jul 3, 2026',
+          time: '10:15 AM',
+          event: isAr ? 'تشغيل ري مجدول' : 'Irrigation Cycle Run',
+          details: isAr ? 'تم تشغيل نظام الري التلقائي لمدة 45 دقيقة.' : 'Automatic drip irrigation running for 45 minutes on crop fields.',
+          type: 'irrigation',
+        },
+        {
+          id: 3,
+          date: isAr ? '2 يوليو 2026' : 'Jul 2, 2026',
+          time: '03:45 PM',
+          event: isAr ? 'كشف عن مرض بالنبات' : 'Disease Detection Scan',
+          details: isAr ? 'تم فحص صورة ورقة نبات الطماطم؛ النتيجة: سليمة.' : 'Plant scan completed on Tomato Leaf: Classified as Healthy.',
+          type: 'disease',
+        },
+        {
+          id: 4,
+          date: isAr ? '1 يوليو 2026' : 'Jul 1, 2026',
+          time: '11:20 AM',
+          event: isAr ? 'توصيات السماد المخصصة' : 'Fertilizer Optimization',
+          details: isAr ? 'تم حساب كميات السماد المستهدفة لمحصول الذرة.' : 'Fertilizer target levels updated dynamically for Maize crop.',
+          type: 'fertilizer',
+        },
+      ]
+      setHistory(defaults)
+      localStorage.setItem('farmtec-history', JSON.stringify(defaults))
+    }
+
+    load()
+    window.addEventListener('farmtec-history-updated', load)
+    return () => {
+      window.removeEventListener('farmtec-history-updated', load)
+    }
+  }, [language])
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -78,10 +86,10 @@ export default function FarmHistoryPage() {
   }
 
   const stats = [
-    { label: L.stats[0], value: 156 },
-    { label: L.stats[1], value: 32 },
-    { label: L.stats[2], value: 8 },
-    { label: L.stats[3], value: 2 },
+    { label: L.stats[0] || "Total Activities", value: history.length },
+    { label: L.stats[1] || "This Month", value: history.length },
+    { label: L.stats[2] || "This Week", value: Math.min(history.length, 3) },
+    { label: L.stats[3] || "Today", value: history.filter(h => h.date.includes('4') || h.date.includes('Jul 4')).length },
   ]
 
   return (
@@ -114,7 +122,7 @@ export default function FarmHistoryPage() {
                 <div key={item.id} className="flex gap-6 pb-6 relative">
                   {/* Timeline Line */}
                   {index !== history.length - 1 && (
-                    <div className="absolute start-6 top-16 w-0.5 h-12 bg-border"></div>
+                    <div className="absolute start-6 top-12 w-0.5 h-12 bg-border"></div>
                   )}
                   
                   {/* Icon */}
@@ -137,6 +145,9 @@ export default function FarmHistoryPage() {
                   </div>
                 </div>
               ))}
+              {history.length === 0 && (
+                <p className="text-center py-6 text-muted-foreground">No activities found.</p>
+              )}
             </div>
           </div>
 
