@@ -9,6 +9,7 @@ for enriched agricultural knowledge responses.
 
 import os
 import json
+import requests as http_requests
 import time
 import tempfile
 from PIL import Image
@@ -55,9 +56,31 @@ class BaseAIView(APIView):
                     input_data = {}
 
             # 2. Run child prediction
+            import time
+            start_time = time.time()
             result_data = self.run_prediction(request, input_data)
+            exec_time = time.time() - start_time
 
-            # 3. Success response
+            # 3. Save to history if authenticated
+            if request.user and request.user.is_authenticated and hasattr(self, 'model_type'):
+                # Extract farm if provided in input data
+                farm_id = input_data.get("farm_id")
+                farm = None
+                if farm_id:
+                    from farms.models import Farm
+                    farm = Farm.objects.filter(id=farm_id, user=request.user).first()
+                
+                from .models import AICoreResult
+                AICoreResult.objects.create(
+                    user=request.user,
+                    farm=farm,
+                    model_type=self.model_type,
+                    input_data=input_data,
+                    result_data=result_data,
+                    execution_time=exec_time
+                )
+
+            # 4. Success response
             return Response({
                 "success": True,
                 "data": result_data
@@ -101,13 +124,27 @@ class CVView(BaseAIView):
             result = cv_model.predict_image(temp_path)
 
             disease_name = result.get("prediction", "Unknown")
+            confidence = result.get("confidence", 0)
 
             # Build response
             response = {
                 "prediction": disease_name,
                 "class_id": result.get("class_id", -1),
-                "confidence": result.get("confidence", 0),
+                "confidence": confidence,
             }
+
+            # Save to PlantDiseaseScan if authenticated
+            if request.user and request.user.is_authenticated:
+                from .models import PlantDiseaseScan
+                # Reset file pointer since we iterated over chunks
+                image_file.seek(0)
+                PlantDiseaseScan.objects.create(
+                    user=request.user,
+                    image=image_file,
+                    disease=disease_name,
+                    confidence=confidence,
+                    severity="Unknown"
+                )
 
             return response
 
@@ -221,19 +258,18 @@ class ScenarioSimulatorView(BaseAIView):
 
 class SoilHealthPredictionView(BaseAIView):
     """
-    Soil health prediction using nearest CropField database records.
-    Computes a composite health score from real soil properties.
+    Soil health prediction.
+    Tries the hosted HF API first (youssef-d1aa-soil-health.hf.space),
+    falls back to local CropField DB computation if unavailable.
     """
     model_type = "soil_health"
     permission_classes = [AllowAny]
+    HF_SOIL_URL = "https://youssef-d1aa-soil-health.hf.space/api/soil-health/"
 
-    def run_prediction(self, request, input_data):
+    def _local_prediction(self, lat, lon, crop):
+        """Local fallback using nearest CropField DB record."""
         from django.db.models import ExpressionWrapper, FloatField
         from django.db.models import F as DBF
-
-        lat = float(input_data.get("lat", input_data.get("latitude", 30.0)))
-        lon = float(input_data.get("lon", input_data.get("longitude", 31.0)))
-        crop = input_data.get("crop", None)
 
         qs = CropField.objects.annotate(
             distance=ExpressionWrapper(
@@ -254,46 +290,56 @@ class SoilHealthPredictionView(BaseAIView):
             ).order_by('distance').first()
 
         if not field:
-            return {"error": "No crop field data available in database"}
+            # Use sensible defaults for Egypt soil if database is empty
+            ph = 7.1
+            soc = 0.8
+            clay = 28.0
+            nitrogen = 1.6
+            cec = 16.5
+            moisture = 42.0
+            fertility = 0.65
+            aridity = 0.45
+            field_crop = crop or "wheat"
+            field_year = 2026
+            field_lat = lat
+            field_lon = lon
+        else:
+            ph = field.soil_ph or 7.0
+            soc = field.soil_soc or 0.5
+            clay = field.soil_clay or 25.0
+            nitrogen = field.soil_nitrogen or 1.5
+            cec = field.soil_cec or 15.0
+            moisture = field.soil_moisture or 30.0
+            fertility = field.fertility_index
+            aridity = field.aridity_index
+            field_crop = field.crop
+            field_year = field.year
+            field_lat = field.lat
+            field_lon = field.lon
 
-        # Real soil properties
-        ph = field.soil_ph or 7.0
-        soc = field.soil_soc or 0.5        # soil organic carbon (g/kg)
-        clay = field.soil_clay or 25.0     # %
-        nitrogen = field.soil_nitrogen or 1.5  # g/kg
-        cec = field.soil_cec or 15.0      # cmol/kg
-        moisture = field.soil_moisture or 30.0
-        fertility = field.fertility_index
-        aridity = field.aridity_index
-
-        # Compute health score (0–100) from real properties
-        # pH score: optimal 6.5–7.5
+        # Compute health score (0-100) from properties
         ph_score = max(0, 100 - abs(ph - 7.0) * 15)
-        # SOC score: higher is better (>2 = excellent)
         soc_score = min(100, (soc / 3.0) * 100)
-        # Nitrogen score: 1–3 g/kg is optimal
         n_score = min(100, max(0, (nitrogen / 2.5) * 100))
-        # Moisture score: 30–65% optimal
         m_score = max(0, 100 - abs(moisture - 45) * 1.5)
-        # CEC score: >10 cmol/kg is good
         cec_score = min(100, (cec / 25.0) * 100)
-
         health_score = round((ph_score * 0.25 + soc_score * 0.20 + n_score * 0.20 +
                               m_score * 0.20 + cec_score * 0.15), 1)
 
         if health_score >= 75:
-            status = "Excellent"
+            status_label = "Excellent"
         elif health_score >= 55:
-            status = "Good"
+            status_label = "Good"
         elif health_score >= 35:
-            status = "Fair"
+            status_label = "Fair"
         else:
-            status = "Poor"
+            status_label = "Poor"
 
         return {
             "status": "success",
+            "source": "local_db",
             "health_score": health_score,
-            "status_label": status,
+            "status_label": status_label,
             "soil_properties": {
                 "ph": round(ph, 2),
                 "soil_organic_carbon_g_kg": round(soc, 3),
@@ -312,21 +358,99 @@ class SoilHealthPredictionView(BaseAIView):
             "fertility_index": round(fertility, 3) if fertility else None,
             "aridity_index": round(aridity, 3) if aridity else None,
             "nearest_field": {
-                "crop": field.crop,
-                "year": field.year,
-                "lat": field.lat,
-                "lon": field.lon,
+                "crop": field_crop,
+                "year": field_year,
+                "lat": field_lat,
+                "lon": field_lon,
             }
         }
+
+    def run_prediction(self, request, input_data):
+        lat = float(input_data.get("lat", input_data.get("latitude", 30.0)))
+        lon = float(input_data.get("lon", input_data.get("longitude", 31.0)))
+        crop = input_data.get("crop", None)
+
+        # Try hosted HF API first
+        try:
+            hf_resp = http_requests.post(
+                self.HF_SOIL_URL,
+                json={"lat": lat, "lon": lon},
+                timeout=15,
+            )
+            if hf_resp.status_code == 200:
+                hf_data = hf_resp.json()
+                
+                # Check if it has the nested format expected by the frontend
+                if isinstance(hf_data, dict) and "soil_properties" in hf_data and "component_scores" in hf_data:
+                    hf_data["source"] = "hf_api"
+                    return hf_data
+                
+                # If flat or raw data, map it safely to prevent frontend TypeError crashes
+                if isinstance(hf_data, dict):
+                    # Find attributes inside hf_data, falling back to defaults if not present
+                    ph = float(hf_data.get("ph", hf_data.get("soil_ph", 7.1)))
+                    soc = float(hf_data.get("soil_organic_carbon_g_kg", hf_data.get("soc", hf_data.get("organic_matter", 0.8))))
+                    clay = float(hf_data.get("clay_percent", hf_data.get("clay", 28.0)))
+                    nitrogen = float(hf_data.get("nitrogen_g_kg", hf_data.get("nitrogen", hf_data.get("soil_nitrogen", 1.6))))
+                    cec = float(hf_data.get("cec_cmol_kg", hf_data.get("cec", 16.5)))
+                    moisture = float(hf_data.get("soil_moisture_percent", hf_data.get("moisture", hf_data.get("soil_moisture", 42.0))))
+                    
+                    fertility = hf_data.get("fertility_index", hf_data.get("fertility", 0.65))
+                    aridity = hf_data.get("aridity_index", hf_data.get("aridity", 0.45))
+                    
+                    # Calculate scores
+                    ph_score = max(0, 100 - abs(ph - 7.0) * 15)
+                    soc_score = min(100, (soc / 3.0) * 100)
+                    n_score = min(100, max(0, (nitrogen / 2.5) * 100))
+                    m_score = max(0, 100 - abs(moisture - 45) * 1.5)
+                    cec_score = min(100, (cec / 25.0) * 100)
+                    health_score = hf_data.get("health_score", round((ph_score * 0.25 + soc_score * 0.20 + n_score * 0.20 + m_score * 0.20 + cec_score * 0.15), 1))
+                    
+                    status_label = hf_data.get("status_label", "Excellent" if health_score >= 75 else "Good" if health_score >= 55 else "Fair" if health_score >= 35 else "Poor")
+                    
+                    return {
+                        "status": "success",
+                        "source": "hf_api_mapped",
+                        "health_score": health_score,
+                        "status_label": status_label,
+                        "soil_properties": {
+                            "ph": round(ph, 2),
+                            "soil_organic_carbon_g_kg": round(soc, 3),
+                            "nitrogen_g_kg": round(nitrogen, 3),
+                            "clay_percent": round(clay, 1),
+                            "cec_cmol_kg": round(cec, 2),
+                            "soil_moisture_percent": round(moisture, 1),
+                        },
+                        "component_scores": {
+                            "ph_score": round(ph_score, 1),
+                            "organic_matter_score": round(soc_score, 1),
+                            "nitrogen_score": round(n_score, 1),
+                            "moisture_score": round(m_score, 1),
+                            "cec_score": round(cec_score, 1),
+                        },
+                        "fertility_index": round(fertility, 3) if fertility else None,
+                        "aridity_index": round(aridity, 3) if aridity else None,
+                        "nearest_field": {
+                            "crop": hf_data.get("crop", crop or "wheat"),
+                            "year": hf_data.get("year", 2026),
+                            "lat": lat,
+                            "lon": lon,
+                        }
+                    }
+        except Exception:
+            pass  # Fall through to local computation
+
+        return self._local_prediction(lat, lon, crop)
 
 
 class FertilizerOptimizerView(BaseAIView):
     """
-    Fertilizer optimizer: generates crop-specific NPK recommendations
-    from real soil chemistry data in the CropField database.
+    Fertilizer optimizer: calls hosted Gradio HF space first,
+    falls back to local NPK calculation from CropField DB.
     """
     model_type = "fertilizer"
     permission_classes = [AllowAny]
+    HF_FERT_URL = "https://b1r-14n15-fertilizing.hf.space/api/predict"
 
     # Optimal NPK targets by crop (kg/ha)
     CROP_NPK_TARGETS = {
@@ -399,6 +523,7 @@ class FertilizerOptimizerView(BaseAIView):
 
         return {
             "status": "success",
+            "source": "local_db",
             "crop": crop,
             "soil_nutrient_levels_kg_ha": {
                 "nitrogen": round(soil_n_kg_ha, 1),
@@ -438,12 +563,209 @@ class FertilizerOptimizerView(BaseAIView):
             }
         }
 
+    def _try_hf_api(self, input_data, field):
+        """Attempt to call the hosted Gradio Fertilizer space."""
+        try:
+            # Build a condensed 10-feature payload recognized by the Gradio API
+            payload = {
+                "api_name": "/process_submission",
+                "data": [
+                    float(input_data.get("lat", field.lat or 30.0)),
+                    float(input_data.get("lon", field.lon or 31.0)),
+                    str(input_data.get("crop", field.crop or "wheat")),
+                    float(field.soil_ph or 7.0),
+                    float(field.soil_nitrogen or 1.5),
+                    float(field.soil_soc or 0.5),
+                    float(field.soil_clay or 25.0),
+                    float(field.soil_cec or 15.0),
+                    float(field.temp_mean or 25.0),
+                    float(field.precip_sum or 50.0),
+                ]
+            }
+            resp = http_requests.post(self.HF_FERT_URL, json=payload, timeout=20)
+            if resp.status_code == 200:
+                hf_data = resp.json()
+                hf_data["source"] = "hf_gradio"
+                return hf_data
+        except Exception:
+            pass
+        return None
+
+    def run_prediction(self, request, input_data):
+        from django.db.models import ExpressionWrapper, FloatField
+        from django.db.models import F as DBF
+
+        lat = float(input_data.get("lat", input_data.get("latitude", 30.0)))
+        lon = float(input_data.get("lon", input_data.get("longitude", 31.0)))
+        crop = str(input_data.get("crop", "wheat")).strip().lower()
+
+        qs = CropField.objects.annotate(
+            distance=ExpressionWrapper(
+                (DBF('lat') - lat) * (DBF('lat') - lat) + (DBF('lon') - lon) * (DBF('lon') - lon),
+                output_field=FloatField()
+            )
+        ).filter(crop__iexact=crop).order_by('distance')
+
+        field = qs.first()
+        if not field:
+            field = CropField.objects.annotate(
+                distance=ExpressionWrapper(
+                    (DBF('lat') - lat) * (DBF('lat') - lat) + (DBF('lon') - lon) * (DBF('lon') - lon),
+                    output_field=FloatField()
+                )
+            ).order_by('distance').first()
+
+        if not field:
+            soil_bd = 1.3
+            soil_nitrogen = 1.6
+            soil_soc = 0.8
+            soil_cec = 16.5
+            ph = 7.1
+            field_crop = crop
+            field_year = 2026
+            field_lat = lat
+            field_lon = lon
+        else:
+            soil_bd = field.soil_bd or 1.3
+            soil_nitrogen = field.soil_nitrogen or 1.5
+            soil_soc = field.soil_soc or 0.5
+            soil_cec = field.soil_cec or 15.0
+            ph = field.soil_ph or 7.0
+            field_crop = field.crop
+            field_year = field.year
+            field_lat = field.lat
+            field_lon = field.lon
+
+        # Try HF Gradio API first
+        if field:
+            hf_result = self._try_hf_api(input_data, field)
+            if hf_result:
+                return hf_result
+
+        # Fallback: local DB computation
+        bd = soil_bd
+        depth_cm = 20
+        soil_mass_kg_ha = bd * 1000 * depth_cm * 100  # kg/ha
+
+        soil_n_kg_ha = soil_nitrogen * soil_mass_kg_ha / 1000
+        soil_p_kg_ha = soil_soc * 15
+        soil_k_kg_ha = soil_cec * 10
+
+        return self._local_computation(input_data, field, lat, lon, crop,
+                                       soil_n_kg_ha, soil_p_kg_ha, soil_k_kg_ha,
+                                       ph, field_crop, field_year, field_lat, field_lon)
+
+    def _local_computation(self, input_data, field, lat, lon, crop,
+                            soil_n_kg_ha, soil_p_kg_ha, soil_k_kg_ha,
+                            ph, field_crop, field_year, field_lat, field_lon):
+        targets = self.CROP_NPK_TARGETS.get(crop, self.CROP_NPK_TARGETS["default"])
+        n_deficit = max(0, targets["N"] - soil_n_kg_ha)
+        p_deficit = max(0, targets["P"] - soil_p_kg_ha)
+        k_deficit = max(0, targets["K"] - soil_k_kg_ha)
+        urea_rate = round(n_deficit / 0.46, 1)
+        dap_rate  = round(p_deficit / 0.46, 1)
+        mop_rate  = round(k_deficit / 0.60, 1)
+        deficits = {"Nitrogen": n_deficit, "Phosphorus": p_deficit, "Potassium": k_deficit}
+        priority = max(deficits, key=deficits.get)
+        lime_needed = ph < 6.0
+        gypsum_needed = ph > 8.0
+
+        return {
+            "status": "success",
+            "source": "local_db",
+            "crop": crop,
+            "soil_nutrient_levels_kg_ha": {
+                "nitrogen": round(soil_n_kg_ha, 1),
+                "phosphorus": round(soil_p_kg_ha, 1),
+                "potassium": round(soil_k_kg_ha, 1),
+            },
+            "target_levels_kg_ha": targets,
+            "deficits_kg_ha": {
+                "nitrogen": round(n_deficit, 1),
+                "phosphorus": round(p_deficit, 1),
+                "potassium": round(k_deficit, 1),
+            },
+            "fertilizer_recommendations": {
+                "urea_kg_ha": urea_rate,
+                "dap_kg_ha": dap_rate,
+                "mop_kg_ha": mop_rate,
+            },
+            "amendments": {
+                "lime_needed": lime_needed,
+                "gypsum_needed": gypsum_needed,
+            },
+            "priority_nutrient": priority,
+            "recommendation": (
+                f"Apply {urea_rate:.0f} kg/ha Urea ({n_deficit:.0f} kg/ha N deficit), "
+                f"{dap_rate:.0f} kg/ha DAP ({p_deficit:.0f} kg/ha P deficit), "
+                f"{mop_rate:.0f} kg/ha MOP ({k_deficit:.0f} kg/ha K deficit). "
+                f"Priority: {priority}."
+                + (" Add lime to raise pH." if lime_needed else "")
+                + (" Add gypsum to lower pH." if gypsum_needed else "")
+            ),
+            "soil_ph": round(ph, 2),
+            "nearest_field": {
+                "crop": field_crop,
+                "year": field_year,
+                "lat": field_lat,
+                "lon": field_lon,
+            }
+        }
+
 
 class IrrigationOptimizerView(BaseAIView):
     model_type = "irrigation"
     permission_classes = [AllowAny]
+    HF_IRRIGATION_BASE = "https://b1r-14n15-irrigation.hf.space"
+
     def run_prediction(self, request, input_data):
-        return HFIrrigationRecommender.get_recommendation(input_data)
+        lat = float(input_data.get("lat", input_data.get("latitude", 30.0)))
+        lon = float(input_data.get("lon", input_data.get("longitude", 31.0)))
+        crop = str(input_data.get("crop", "wheat")).strip().lower()
+        year = int(input_data.get("year", 2024))
+
+        # Try hosted HF Irrigation FastAPI
+        try:
+            predict_resp = http_requests.post(
+                f"{self.HF_IRRIGATION_BASE}/predict",
+                json={"lat": lat, "lon": lon, "crop": crop, "year": year, "debug": False},
+                timeout=20,
+            )
+            if predict_resp.status_code == 200:
+                predict_data = predict_resp.json()
+                irrigation_mm = predict_data.get("irrigation_need_mm_season",
+                                  predict_data.get("prediction", 400.0))
+                season = predict_data.get("season", "Winter")
+                active_months = predict_data.get("active_months", [11, 12, 1, 2])
+
+                # Also fetch the schedule
+                try:
+                    sched_resp = http_requests.post(
+                        f"{self.HF_IRRIGATION_BASE}/schedule",
+                        json={
+                            "crop": crop, "latitude": lat, "longitude": lon,
+                            "year": year, "season": season,
+                            "active_months": active_months,
+                            "seasonal_irrigation_mm": float(irrigation_mm),
+                            "soil": {}, "climate": {},
+                            "diagnostics": predict_data.get("diagnostics", {}),
+                        },
+                        timeout=20,
+                    )
+                    if sched_resp.status_code == 200:
+                        predict_data["schedule"] = sched_resp.json()
+                except Exception:
+                    pass
+
+                predict_data["source"] = "hf_api"
+                return predict_data
+        except Exception:
+            pass
+
+        # Fallback: local DB model
+        result = HFIrrigationRecommender.get_recommendation(input_data)
+        result["source"] = "local_db"
+        return result
 
 class YieldPredictionView(BaseAIView):
     model_type = "yield"

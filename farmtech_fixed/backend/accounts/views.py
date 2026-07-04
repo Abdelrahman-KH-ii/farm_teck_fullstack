@@ -113,6 +113,7 @@ class ProfileView(APIView):
             "email": user.email,
             "username": user.username,
             "phone_number": user.phone_number,
+            "date_joined": user.date_joined.strftime("%Y-%m-%d") if user.date_joined else "",
         })
 
     @swagger_auto_schema(
@@ -130,3 +131,28 @@ class ProfileView(APIView):
         user.phone_number = request.data.get("phone_number", user.phone_number)
         user.save()
         return Response({"message": "Profile updated successfully"})
+
+
+class NotificationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from .models import Notification
+        from .serializers import NotificationSerializer
+        notifications = Notification.objects.filter(user=request.user)
+        serializer = NotificationSerializer(notifications, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        from .models import Notification
+        from .serializers import NotificationSerializer
+        serializer = NotificationSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(user=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request):
+        from .models import Notification
+        Notification.objects.filter(user=request.user, read=False).update(read=True)
+        return Response({"message": "Notifications marked as read"})

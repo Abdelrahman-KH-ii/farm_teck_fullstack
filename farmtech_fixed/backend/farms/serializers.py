@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Farm, FarmData, Plot, SoilRecord, IrrigationSchedule, CropField
+from .models import Farm, FarmData, Plot, SoilRecord, IrrigationSchedule, CropField, Testimonial, FarmHistory
 
 
 class SoilSerializer(serializers.ModelSerializer):
@@ -84,3 +84,16 @@ class CropFieldGeoJSONSerializer(serializers.ModelSerializer):
             'farm_id': obj.farm_id,
             'farm_name': obj.farm.name if obj.farm else None,
         }
+
+
+class TestimonialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Testimonial
+        fields = "__all__"
+
+
+class FarmHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FarmHistory
+        fields = "__all__"
+        read_only_fields = ("user",)

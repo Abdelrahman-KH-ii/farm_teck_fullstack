@@ -193,3 +193,37 @@ class CropField(models.Model):
                 "aridity":     self.aridity_index,
             },
         }
+
+
+class PlantDiseaseScan(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="disease_scans"
+    )
+    image = models.ImageField(upload_to="scans/")
+    disease = models.CharField(max_length=255)
+    confidence = models.FloatField()
+    severity = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Plant Disease Scan"
+        verbose_name_plural = "Plant Disease Scans"
+
+    def __str__(self):
+        return f"{self.disease} ({self.confidence}%)"
+
+
+class ContactMessage(models.Model):
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Message from {self.name} ({self.email})"

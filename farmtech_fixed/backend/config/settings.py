@@ -1,21 +1,30 @@
 from pathlib import Path
 from datetime import timedelta
 import os
-# pyrefly: ignore [missing-import]
+
+# ── Environment ─────────────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv
     load_dotenv()
-    # Search one level up (farmtech_fixed directory) for .env
+    # Also load from the farmtech_fixed parent directory
     load_dotenv(Path(__file__).resolve().parent.parent.parent / '.env')
 except ImportError:
     pass
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-farmtech-dev-key-change-in-production-2024")
-DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,backend,0.0.0.0").split(",")
+# ── Core Settings ────────────────────────────────────────────────────────────
+SECRET_KEY = os.getenv(
+    "SECRET_KEY",
+    "django-insecure-farmtech-dev-key-change-in-production-2024"
+)
+DEBUG = os.getenv("DEBUG", "True") == "True"
+ALLOWED_HOSTS = os.getenv(
+    "ALLOWED_HOSTS",
+    "localhost,127.0.0.1,backend,0.0.0.0"
+).split(",")
 
+# ── Installed Apps ────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -28,12 +37,21 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "drf_yasg",
+    # Optional: django-filter (for CropField filtering)
     "accounts",
     "farms",
     "ai_core",
     "news",
 ]
 
+# Add django_filter only if installed
+try:
+    import django_filters  # noqa: F401
+    INSTALLED_APPS.insert(-4, "django_filters")
+except ImportError:
+    pass
+
+# ── Middleware ────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -45,8 +63,15 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-# CORS settings
-CORS_ALLOW_ALL_ORIGINS = True  # Allow all for Docker internal + localhost
+# Add whitenoise if installed
+try:
+    import whitenoise  # noqa: F401
+    MIDDLEWARE.insert(2, "whitenoise.middleware.WhiteNoiseMiddleware")
+except ImportError:
+    pass
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -60,7 +85,6 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
-# CSRF trusted origins (for Django admin & non-API forms)
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost",
     "http://localhost:80",
@@ -68,8 +92,10 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1",
     "http://127.0.0.1:80",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:8001",
 ]
 
+# ── URLs / Templates / WSGI ───────────────────────────────────────────────────
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
@@ -90,13 +116,26 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Database configuration - Use PostgreSQL if configured in environment, otherwise use SQLite
-DATABASE_URL = os.getenv("DATABASE_URL")
-DB_ENGINE = os.getenv("DB_ENGINE")
+# ── Database ──────────────────────────────────────────────────────────────────
+# Priority order:
+#   1. DATABASE_URL env var  (Docker / Heroku style)
+#   2. DB_ENGINE=postgresql  only if psycopg2 is actually importable
+#   3. SQLite fallback       always works locally
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+DB_ENGINE    = os.getenv("DB_ENGINE", "")
+
+def _use_postgres():
+    """Return True only when psycopg2 is installed and reachable."""
+    try:
+        import psycopg2  # noqa: F401
+        return DB_ENGINE in ["postgresql", "postgres", "django.db.backends.postgresql"]
+    except ImportError:
+        return False
+
 
 if DATABASE_URL:
     try:
-        import dj_database_url
+        import dj_database_url  # type: ignore # pyrefly: ignore [missing-import]
         DATABASES = {
             "default": dj_database_url.config(
                 default=DATABASE_URL,
@@ -111,7 +150,7 @@ if DATABASE_URL:
                 "NAME": BASE_DIR / "db.sqlite3",
             }
         }
-elif DB_ENGINE in ["postgresql", "postgres", "django.db.backends.postgresql"]:
+elif _use_postgres():
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -120,9 +159,13 @@ elif DB_ENGINE in ["postgresql", "postgres", "django.db.backends.postgresql"]:
             "PASSWORD": os.getenv("DB_PASSWORD", ""),
             "HOST": os.getenv("DB_HOST", "localhost"),
             "PORT": os.getenv("DB_PORT", "5432"),
+            "OPTIONS": {
+                "connect_timeout": 5,
+            },
         }
     }
 else:
+    # Safe default — always works
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -130,7 +173,7 @@ else:
         }
     }
 
-# Cache configuration - Force LocMem for local testing
+# ── Cache ─────────────────────────────────────────────────────────────────────
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -138,9 +181,10 @@ CACHES = {
     }
 }
 
-SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_ENGINE     = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
 AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -148,22 +192,28 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
 ]
 
+# ── Internationalisation ──────────────────────────────────────────────────────
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
-USE_I18N = True
-USE_TZ = True
+TIME_ZONE     = "UTC"
+USE_I18N      = True
+USE_TZ        = True
 
-# Static files
-STATIC_URL = "/static/"
+# ── Static / Media Files ──────────────────────────────────────────────────────
+STATIC_URL  = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-# Media files (uploaded images)
-MEDIA_URL = "/media/"
+try:
+    import whitenoise  # noqa: F401
+    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+except ImportError:
+    STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+
+MEDIA_URL  = "/media/"
 MEDIA_ROOT = BASE_DIR / "mediafiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ── Django REST Framework ─────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -179,19 +229,20 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "user": "10000/day",
-        "anon": "10000/day",   # health check calls /api/health/ ~17,000×/day
+        "anon": "10000/day",
     },
 }
 
-
+# ── JWT ───────────────────────────────────────────────────────────────────────
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "ACCESS_TOKEN_LIFETIME":  timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
+    "ROTATE_REFRESH_TOKENS":  True,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
+# ── Swagger ───────────────────────────────────────────────────────────────────
 SWAGGER_SETTINGS = {
     "SECURITY_DEFINITIONS": {
         "Bearer": {
@@ -204,7 +255,7 @@ SWAGGER_SETTINGS = {
     "USE_SESSION_AUTH": False,
 }
 
-# Logging
+# ── Logging ───────────────────────────────────────────────────────────────────
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -226,6 +277,7 @@ LOGGING = {
     },
 }
 
+# ── Silenced Checks ───────────────────────────────────────────────────────────
 SILENCED_SYSTEM_CHECKS = [
     "security.W004", "security.W008", "security.W009",
     "security.W012", "security.W016",

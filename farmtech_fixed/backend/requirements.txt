@@ -4,6 +4,11 @@ djangorestframework
 djangorestframework-simplejwt
 drf-yasg
 django-cors-headers
+django-filter
+whitenoise
+
+# HTTP requests (for HF API calls)
+requests
 
 # ML & Data Science
 numpy

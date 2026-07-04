@@ -237,3 +237,42 @@ class CropField(models.Model):
     def __str__(self):
         farm_name = self.farm.name if self.farm else "Unknown"
         return f"{farm_name} - {self.crop_type} ({self.latitude}, {self.longitude})"
+
+
+class Testimonial(models.Model):
+    name = models.CharField(max_length=150)
+    role = models.CharField(max_length=150)
+    location = models.CharField(max_length=150)
+    quote = models.TextField()
+    rating = models.IntegerField(default=5)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} - {self.role}"
+
+
+class FarmHistory(models.Model):
+    EVENT_TYPES = (
+        ("prediction", "Prediction"),
+        ("irrigation", "Irrigation"),
+        ("disease", "Disease"),
+        ("fertilizer", "Fertilizer"),
+        ("weather", "Weather"),
+        ("soil", "Soil"),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="farm_history")
+    farm = models.ForeignKey(Farm, on_delete=models.SET_NULL, null=True, blank=True)
+    plot = models.ForeignKey(Plot, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
+    event_title = models.CharField(max_length=255)
+    details = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.event_title}"
